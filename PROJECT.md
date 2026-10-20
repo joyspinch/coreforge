@@ -1,6 +1,7 @@
 # coreforge —— 独立项目
 
 本项目从 zan-lang 仓库的 `templates/game/coreforge` 导出（导出日期：2026-10-20）。
+该模板已搬出语言仓库（体量超出示例级模板位），历史版本在 `archive/coreforge-2026-10-20` 标签上；逻辑层仍是仓库的 `packages/Zan.Game.Factory` 包（公共包，规则 14），项目通过 --package-project $env:ZAN_HOME 直接吃仓库的包。
 语言仓库只放 SDK、公共包与**示例级**模板；产品级游戏在这里自己演进。
 
 ## 目录
