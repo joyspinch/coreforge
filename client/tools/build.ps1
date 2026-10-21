@@ -8,7 +8,9 @@ param(
     [string]$Compiler = $env:ZANC,
     [string]$Stdlib = $env:ZAN_STDLIB,
     [string]$Output = '',
-    [string]$PackageProject = ''
+    [string]$PackageProject = '',
+    # 透传给 zanc 的额外参数（单文件发布：--publish / --link-mode static）
+    [string[]]$ZancArgs = @()
 )
 $ErrorActionPreference = 'Stop'
 $project = Split-Path -Parent $PSScriptRoot
@@ -34,6 +36,8 @@ $sources += @(Get-ChildItem (Join-Path $project 'src') -Recurse -File -Include *
     Sort-Object FullName | ForEach-Object { $_.FullName })
 $zargs = @($sources) + @('--auto-stdlib', '--package-project', $PackageProject)
 if ($Stdlib) { $zargs += @('--stdlib-path', $Stdlib) }
+# 透传 zanc 额外参数：单文件发布用 -ZancArgs @('--publish','--link-mode','static')
+if ($ZancArgs) { $zargs += $ZancArgs }
 $exe = Join-Path $Output 'Coreforge.exe'
 $zargs += @('-o', $exe)
 & $Compiler @zargs
