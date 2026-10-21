@@ -32,6 +32,15 @@ public class CoreforgeProgram {
         app.UseSkin("coreforge");
         app.SetChromeButtons(false, false, true, true);
         Gui.Control root = CoreforgeHud.Root();
+        // HUD 根（设计稿的 body 元素）是 CSS 块流容器：子项的 dock 不生效，
+        // Overlay 只能拿到内容自然高，于是 Overlay 里的建造栏/状态栏
+        // （dock=bottom）贴在那个小盒子的底——看着就是"跑到屏幕中间去了"。
+        // 改成 flex 列容器 + 让 Overlay 吃掉剩余空间，Overlay 的盒就等于
+        // 窗口剩余区，它内部的 dock=bottom 才真的贴到窗口底。
+        // 注意 flex 布局只认 CSS 的 flex-grow；Control.Grow() 那个字段是
+        // 停靠布局用的，对 flex 无效。
+        root.SetProp("style", "display:flex;flex-direction:column");
+        CoreforgeHud.Overlay.SetProp("style", "flex-grow:1");
         window.Add(root);
         CoreforgeHud.__WireForm(window);
         ForgeInterface game = new ForgeInterface(app, CoreforgeProgram.SavePath());
