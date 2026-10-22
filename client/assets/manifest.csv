@@ -1,0 +1,64 @@
+id,file,category,width,height,source,license,author,usage,notes
+copper_icon,sprites/coreforge/items/copper_icon.png,items,32,32,generated,原创（自研）,artkit,库存面板 / 物品提示 / 图集,ingot 形 32px；base3 色阶 + 3px 描边；光源右上
+copper_belt,sprites/coreforge/items/copper_belt.png,items,16,16,generated,原创（自研）,artkit,传送带货物 / 库存格子,ingot 形 16px；描边按比例降到 2px
+lead_icon,sprites/coreforge/items/lead_icon.png,items,32,32,generated,原创（自研）,artkit,库存面板 / 物品提示 / 图集,ingot 形 32px；base3 色阶 + 3px 描边；光源右上
+lead_belt,sprites/coreforge/items/lead_belt.png,items,16,16,generated,原创（自研）,artkit,传送带货物 / 库存格子,ingot 形 16px；描边按比例降到 2px
+graphite_icon,sprites/coreforge/items/graphite_icon.png,items,32,32,generated,原创（自研）,artkit,库存面板 / 物品提示 / 图集,shard 形 32px；base3 色阶 + 3px 描边；光源右上
+graphite_belt,sprites/coreforge/items/graphite_belt.png,items,16,16,generated,原创（自研）,artkit,传送带货物 / 库存格子,shard 形 16px；描边按比例降到 2px
+silicon_icon,sprites/coreforge/items/silicon_icon.png,items,32,32,generated,原创（自研）,artkit,库存面板 / 物品提示 / 图集,shard 形 32px；base3 色阶 + 3px 描边；光源右上
+silicon_belt,sprites/coreforge/items/silicon_belt.png,items,16,16,generated,原创（自研）,artkit,传送带货物 / 库存格子,shard 形 16px；描边按比例降到 2px
+steel_icon,sprites/coreforge/items/steel_icon.png,items,32,32,generated,原创（自研）,artkit,库存面板 / 物品提示 / 图集,bar 形 32px；base3 色阶 + 3px 描边；光源右上
+steel_belt,sprites/coreforge/items/steel_belt.png,items,16,16,generated,原创（自研）,artkit,传送带货物 / 库存格子,bar 形 16px；描边按比例降到 2px
+titanium_icon,sprites/coreforge/items/titanium_icon.png,items,32,32,generated,原创（自研）,artkit,库存面板 / 物品提示 / 图集,shard 形 32px；base3 色阶 + 3px 描边；光源右上
+titanium_belt,sprites/coreforge/items/titanium_belt.png,items,16,16,generated,原创（自研）,artkit,传送带货物 / 库存格子,shard 形 16px；描边按比例降到 2px
+ground_0,sprites/coreforge/terrain/ground_0.png,terrain,32,32,generated,原创（自研）,artkit,地面材质叠加层（可无缝平铺）,单一色相 3 明度阶 + 1 装饰色；无描边；按格哈希选变体破除重复
+ground_1,sprites/coreforge/terrain/ground_1.png,terrain,32,32,generated,原创（自研）,artkit,地面材质叠加层（可无缝平铺）,单一色相 3 明度阶 + 1 装饰色；无描边；按格哈希选变体破除重复
+rock_0,sprites/coreforge/terrain/rock_0.png,terrain,32,32,generated,原创（自研）,artkit,地面材质叠加层（可无缝平铺）,单一色相 3 明度阶 + 1 装饰色；无描边；按格哈希选变体破除重复
+rock_1,sprites/coreforge/terrain/rock_1.png,terrain,32,32,generated,原创（自研）,artkit,地面材质叠加层（可无缝平铺）,单一色相 3 明度阶 + 1 装饰色；无描边；按格哈希选变体破除重复
+water_0,sprites/coreforge/terrain/water_0.png,terrain,32,32,generated,原创（自研）,artkit,地面材质叠加层（可无缝平铺）,单一色相 3 明度阶 + 1 装饰色；无描边；按格哈希选变体破除重复
+water_1,sprites/coreforge/terrain/water_1.png,terrain,32,32,generated,原创（自研）,artkit,地面材质叠加层（可无缝平铺）,单一色相 3 明度阶 + 1 装饰色；无描边；按格哈希选变体破除重复
+oil_0,sprites/coreforge/terrain/oil_0.png,terrain,32,32,generated,原创（自研）,artkit,地面材质叠加层（可无缝平铺）,单一色相 3 明度阶 + 1 装饰色；无描边；按格哈希选变体破除重复
+oil_1,sprites/coreforge/terrain/oil_1.png,terrain,32,32,generated,原创（自研）,artkit,地面材质叠加层（可无缝平铺）,单一色相 3 明度阶 + 1 装饰色；无描边；按格哈希选变体破除重复
+atlas,sprites/coreforge/buildings/atlas.png,buildings,256,96,generated,原创（自研）,artkit,建筑静态本体（底板 + 机件）逐格交错提交,8列x3行x32px；格位序号=BlockKind 序号(0..22)；Empty/Belt/Wall/Pipe/Relay 无图(5 格留空)；单纹理保证交错提交不触发 flush
+base_icon,sprites/coreforge/tech/base_icon.png,tech,24,24,generated,原创（自研）,artkit,科技面板图标（HUD Image 控件，1:1 显示）,基础工程；24x24；accent #8f98a3；2px 灰描边 + 硬边三色阶；光源右上
+thermo_icon,sprites/coreforge/tech/thermo_icon.png,tech,24,24,generated,原创（自研）,artkit,科技面板图标（HUD Image 控件，1:1 显示）,热工学；24x24；accent #e8873a；2px 灰描边 + 硬边三色阶；光源右上
+lattice_icon,sprites/coreforge/tech/lattice_icon.png,tech,24,24,generated,原创（自研）,artkit,科技面板图标（HUD Image 控件，1:1 显示）,晶格工程；24x24；accent #3fbfa8；2px 灰描边 + 硬边三色阶；光源右上
+ballistic_icon,sprites/coreforge/tech/ballistic_icon.png,tech,24,24,generated,原创（自研）,artkit,科技面板图标（HUD Image 控件，1:1 显示）,弹道校准；24x24；accent #6f8fd0；2px 灰描边 + 硬边三色阶；光源右上
+logistics_icon,sprites/coreforge/tech/logistics_icon.png,tech,24,24,generated,原创（自研）,artkit,科技面板图标（HUD Image 控件，1:1 显示）,物流增压；24x24；accent #c2a94e；2px 灰描边 + 硬边三色阶；光源右上
+core_icon,sprites/coreforge/tech/core_icon.png,tech,24,24,generated,原创（自研）,artkit,科技面板图标（HUD Image 控件，1:1 显示）,炉心扩张；24x24；accent #f0b040；2px 灰描边 + 硬边三色阶；光源右上
+twin_icon,sprites/coreforge/tech/twin_icon.png,tech,24,24,generated,原创（自研）,artkit,科技面板图标（HUD Image 控件，1:1 显示）,双管齐射；24x24；accent #d4703c；2px 灰描边 + 硬边三色阶；光源右上
+sniper_icon,sprites/coreforge/tech/sniper_icon.png,tech,24,24,generated,原创（自研）,artkit,科技面板图标（HUD Image 控件，1:1 显示）,远程压制；24x24；accent #5a6fb0；2px 灰描边 + 硬边三色阶；光源右上
+siege_icon,sprites/coreforge/tech/siege_icon.png,tech,24,24,generated,原创（自研）,artkit,科技面板图标（HUD Image 控件，1:1 显示）,攻城火力；24x24；accent #a8894a；2px 灰描边 + 硬边三色阶；光源右上
+repair_icon,sprites/coreforge/tech/repair_icon.png,tech,24,24,generated,原创（自研）,artkit,科技面板图标（HUD Image 控件，1:1 显示）,纳米修复；24x24；accent #7fbf5e；2px 灰描边 + 硬边三色阶；光源右上
+swarm_icon,sprites/coreforge/tech/swarm_icon.png,tech,24,24,generated,原创（自研）,artkit,科技面板图标（HUD Image 控件，1:1 显示）,铁蜂编队；24x24；accent #9a8fc0；2px 灰描边 + 硬边三色阶；光源右上
+prism_icon,sprites/coreforge/tech/prism_icon.png,tech,24,24,generated,原创（自研）,artkit,科技面板图标（HUD Image 控件，1:1 显示）,棱镜聚焦；24x24；accent #d064c0；2px 灰描边 + 硬边三色阶；光源右上
+nanoproj_icon,sprites/coreforge/tech/nanoproj_icon.png,tech,24,24,generated,原创（自研）,artkit,科技面板图标（HUD Image 控件，1:1 显示）,纳米投影；24x24；accent #5ec8e8；2px 灰描边 + 硬边三色阶；光源右上
+overdrive_icon,sprites/coreforge/tech/overdrive_icon.png,tech,24,24,generated,原创（自研）,artkit,科技面板图标（HUD Image 控件，1:1 显示）,过护力场；24x24；accent #e8cf4a；2px 灰描边 + 硬边三色阶；光源右上
+shield_icon,sprites/coreforge/tech/shield_icon.png,tech,24,24,generated,原创（自研）,artkit,科技面板图标（HUD Image 控件，1:1 显示）,局能力场；24x24；accent #58a8d8；2px 灰描边 + 硬边三色阶；光源右上
+build_place,audio/build_place.wav,audio,0,0,generated,原创（自研）,artkit,运行时音效（System.Media.AudioClip.LoadWav 播放）,建造；建筑落位：低频闷响 + 金属落地；220ms；16bit PCM 44.1kHz 单声道；自研合成（numpy DSP，种子确定性）
+build_remove,audio/build_remove.wav,audio,0,0,generated,原创（自研）,artkit,运行时音效（System.Media.AudioClip.LoadWav 播放）,建造；建筑拆除：下行锯齿 + 碎料沙沙；320ms；16bit PCM 44.1kHz 单声道；自研合成（numpy DSP，种子确定性）
+build_reject,audio/build_reject.wav,audio,0,0,generated,原创（自研）,artkit,运行时音效（System.Media.AudioClip.LoadWav 播放）,建造；建造被拒：两声低频方波否定音；300ms；16bit PCM 44.1kHz 单声道；自研合成（numpy DSP，种子确定性）
+build_rotate,audio/build_rotate.wav,audio,0,0,generated,原创（自研）,artkit,运行时音效（System.Media.AudioClip.LoadWav 播放）,建造；朝向旋转：机械咔哒；130ms；16bit PCM 44.1kHz 单声道；自研合成（numpy DSP，种子确定性）
+build_blueprint,audio/build_blueprint.wav,audio,0,0,generated,原创（自研）,artkit,运行时音效（System.Media.AudioClip.LoadWav 播放）,建造；蓝图捕获/粘贴：电子上行双音；360ms；16bit PCM 44.1kHz 单声道；自研合成（numpy DSP，种子确定性）
+build_select,audio/build_select.wav,audio,0,0,generated,原创（自研）,artkit,运行时音效（System.Media.AudioClip.LoadWav 播放）,建造；选中建筑：清脆 tick；80ms；16bit PCM 44.1kHz 单声道；自研合成（numpy DSP，种子确定性）
+build_produce,audio/build_produce.wav,audio,0,0,generated,原创（自研）,artkit,运行时音效（System.Media.AudioClip.LoadWav 播放）,建造；生产完成：温暖三音铃；420ms；16bit PCM 44.1kHz 单声道；自研合成（numpy DSP，种子确定性）
+build_feed,audio/build_feed.wav,audio,0,0,generated,原创（自研）,artkit,运行时音效（System.Media.AudioClip.LoadWav 播放）,建造；投入原料：颗粒沙沙 + 落底；280ms；16bit PCM 44.1kHz 单声道；自研合成（numpy DSP，种子确定性）
+weapon_turret,audio/weapon_turret.wav,audio,0,0,generated,原创（自研）,artkit,运行时音效（System.Media.AudioClip.LoadWav 播放）,武器；通用炮塔开火：低频 punch；150ms；16bit PCM 44.1kHz 单声道；自研合成（numpy DSP，种子确定性）
+weapon_scatter,audio/weapon_scatter.wav,audio,0,0,generated,原创（自研）,artkit,运行时音效（System.Media.AudioClip.LoadWav 播放）,武器；散射炮开火：宽频爆散；140ms；16bit PCM 44.1kHz 单声道；自研合成（numpy DSP，种子确定性）
+weapon_sniper,audio/weapon_sniper.wav,audio,0,0,generated,原创（自研）,artkit,运行时音效（System.Media.AudioClip.LoadWav 播放）,武器；狙击开火：尖锐啾 + 长尾；420ms；16bit PCM 44.1kHz 单声道；自研合成（numpy DSP，种子确定性）
+weapon_mortar,audio/weapon_mortar.wav,audio,0,0,generated,原创（自研）,artkit,运行时音效（System.Media.AudioClip.LoadWav 播放）,武器；迫击炮开火：重低频轰击；550ms；16bit PCM 44.1kHz 单声道；自研合成（numpy DSP，种子确定性）
+weapon_prism,audio/weapon_prism.wav,audio,0,0,generated,原创（自研）,artkit,运行时音效（System.Media.AudioClip.LoadWav 播放）,武器；棱镜光束：正弦泛音簇；360ms；16bit PCM 44.1kHz 单声道；自研合成（numpy DSP，种子确定性）
+weapon_drone,audio/weapon_drone.wav,audio,0,0,generated,原创（自研）,artkit,运行时音效（System.Media.AudioClip.LoadWav 播放）,武器；铁蜂射击：电子啁啾；120ms；16bit PCM 44.1kHz 单声道；自研合成（numpy DSP，种子确定性）
+weapon_hit,audio/weapon_hit.wav,audio,0,0,generated,原创（自研）,artkit,运行时音效（System.Media.AudioClip.LoadWav 播放）,武器；命中敌人：金属叮 + 肉感；140ms；16bit PCM 44.1kHz 单声道；自研合成（numpy DSP，种子确定性）
+weapon_shield,audio/weapon_shield.wav,audio,0,0,generated,原创（自研）,artkit,运行时音效（System.Media.AudioClip.LoadWav 播放）,武器；护盾吸收：上行柔嗡；300ms；16bit PCM 44.1kHz 单声道；自研合成（numpy DSP，种子确定性）
+explode_enemy,audio/explode_enemy.wav,audio,0,0,generated,原创（自研）,artkit,运行时音效（System.Media.AudioClip.LoadWav 播放）,爆炸；敌人炸毁：中小型爆裂；460ms；16bit PCM 44.1kHz 单声道；自研合成（numpy DSP，种子确定性）
+explode_building,audio/explode_building.wav,audio,0,0,generated,原创（自研）,artkit,运行时音效（System.Media.AudioClip.LoadWav 播放）,爆炸；建筑损毁：深沉大爆炸；720ms；16bit PCM 44.1kHz 单声道；自研合成（numpy DSP，种子确定性）
+explode_nest,audio/explode_nest.wav,audio,0,0,generated,原创（自研）,artkit,运行时音效（System.Media.AudioClip.LoadWav 播放）,爆炸；敌巢摧毁：巨型爆炸 + 崩塌；1200ms；16bit PCM 44.1kHz 单声道；自研合成（numpy DSP，种子确定性）
+explode_drone,audio/explode_drone.wav,audio,0,0,generated,原创（自研）,artkit,运行时音效（System.Media.AudioClip.LoadWav 播放）,爆炸；铁蜂炸毁：清脆小爆裂；400ms；16bit PCM 44.1kHz 单声道；自研合成（numpy DSP，种子确定性）
+explode_suicide,audio/explode_suicide.wav,audio,0,0,generated,原创（自研）,artkit,运行时音效（System.Media.AudioClip.LoadWav 播放）,爆炸；自爆：中频爆 + 嘶声；580ms；16bit PCM 44.1kHz 单声道；自研合成（numpy DSP，种子确定性）
+ui_click,audio/ui_click.wav,audio,0,0,generated,原创（自研）,artkit,运行时音效（System.Media.AudioClip.LoadWav 播放）,UI；界面点击：短促软 tick；70ms；16bit PCM 44.1kHz 单声道；自研合成（numpy DSP，种子确定性）
+ui_research,audio/ui_research.wav,audio,0,0,generated,原创（自研）,artkit,运行时音效（System.Media.AudioClip.LoadWav 播放）,UI；研究完成：上行四音琶音；550ms；16bit PCM 44.1kHz 单声道；自研合成（numpy DSP，种子确定性）
+ui_error,audio/ui_error.wav,audio,0,0,generated,原创（自研）,artkit,运行时音效（System.Media.AudioClip.LoadWav 播放）,UI；操作失败：低频双哔；340ms；16bit PCM 44.1kHz 单声道；自研合成（numpy DSP，种子确定性）
+ui_wave_start,audio/ui_wave_start.wav,audio,0,0,generated,原创（自研）,artkit,运行时音效（System.Media.AudioClip.LoadWav 播放）,UI；波次开始：低沉号角；900ms；16bit PCM 44.1kHz 单声道；自研合成（numpy DSP，种子确定性）
+ui_wave_clear,audio/ui_wave_clear.wav,audio,0,0,generated,原创（自研）,artkit,运行时音效（System.Media.AudioClip.LoadWav 播放）,UI；波次清理：明亮上行琶音；650ms；16bit PCM 44.1kHz 单声道；自研合成（numpy DSP，种子确定性）
+ui_core_lost,audio/ui_core_lost.wav,audio,0,0,generated,原创（自研）,artkit,运行时音效（System.Media.AudioClip.LoadWav 播放）,UI；炉心失守：下行悲鸣；1450ms；16bit PCM 44.1kHz 单声道；自研合成（numpy DSP，种子确定性）

@@ -1,0 +1,63 @@
+namespace Coreforge;
+
+// 固定步长时钟（coreforge 本地实现，刻意不使用 Game.Foundation.FixedStepClock）。
+//
+// 为什么本地化：using Game.Foundation; 会连带导入子命名空间
+// Game.Foundation.Gui，其中的 GuiHost.zan 带有 using Game.Kit;，
+// 于是 Game.Kit.SpriteBatch（图元批：矩形/圆盘/光晕）与
+// Gui.SpriteBatch（贴图批：10 float/quad）同时注册。Zan 编译器按简单名
+// 去重，同名类型会双双变成 "undefined type"——贴图批就彻底用不了。
+// 引擎版只被用到 6 个成员，本地实现语义完全一致（步长截断、补步上限、
+// 暂停与流速钳位都与引擎版逐行对齐）。
+public class ForgeClock {
+    int stepMilliseconds;
+    int maxStepsPerFrame;
+    int accumulator;
+    int pendingSteps;
+    bool paused;
+    double timeScale;
+
+    public ForgeClock(int stepMilliseconds, int maxStepsPerFrame) {
+        this.stepMilliseconds = stepMilliseconds > 0 ? stepMilliseconds : 16;
+        this.maxStepsPerFrame = maxStepsPerFrame > 0 ? maxStepsPerFrame : 5;
+        this.accumulator = 0;
+        this.pendingSteps = 0;
+        this.paused = false;
+        this.timeScale = 1.0;
+    }
+
+    // 累加一帧真实毫秒并换算成本帧待执行的固定步数。
+    // 缩放后超过 步长×每帧上限 时截断，避免卡顿后一帧狂补模拟。
+    public int Advance(int deltaMilliseconds) {
+        this.pendingSteps = 0;
+        if (this.paused || deltaMilliseconds <= 0) { return 0; }
+        int scaled = (int)((double)deltaMilliseconds * this.timeScale);
+        int maximum = this.stepMilliseconds * this.maxStepsPerFrame;
+        if (scaled > maximum) { scaled = maximum; }
+        this.accumulator = this.accumulator + scaled;
+        int steps = this.accumulator / this.stepMilliseconds;
+        if (steps > 0) {
+            int cap = this.maxStepsPerFrame;
+            if (steps > cap) { steps = cap; }
+            this.accumulator = this.accumulator - steps * this.stepMilliseconds;
+            this.pendingSteps = steps;
+        }
+        return this.pendingSteps;
+    }
+
+    public bool HasStep() { return this.pendingSteps > 0; }
+
+    public int ConsumeStep() {
+        if (this.pendingSteps <= 0) { return 0; }
+        this.pendingSteps = this.pendingSteps - 1;
+        return this.stepMilliseconds;
+    }
+
+    public void SetPaused(bool paused) { this.paused = paused; }
+
+    public void SetTimeScale(double scale) {
+        if (scale < 0.0) { scale = 0.0; }
+        if (scale > 8.0) { scale = 8.0; }
+        this.timeScale = scale;
+    }
+}

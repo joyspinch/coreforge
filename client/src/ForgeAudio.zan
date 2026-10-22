@@ -1,0 +1,280 @@
+using System;
+using System.Media;
+
+namespace Coreforge;
+
+// 音效播放层：打开设备、缓存 clip、按 key 冷却播放、维护自研 voice 账本。
+//
+// 素材：client/assets/audio/<name>.wav，27 个 SFX，由
+// tools/artkit/audio_coreforge.py 合成（WAV / 16bit PCM / 44.1kHz / 单声道）。
+// 编号顺序与该脚本的 SFX 表同序，改表必须两边一起改。
+//
+// 三条硬约束（都来自对本机 zan_audio 的实测，不是猜测）：
+//
+//  1. 绝不等待 IsPlaying()。本机 WASAPI 混音线程不推进采样游标，
+//     IsPlaying() 恒为真——引擎自带的 examples/audio 范例同款写法在本机
+//     直接挂死。任何"等声音播完"的循环都会把游戏卡住。
+//
+//  2. 绝不依赖引擎回收 voice。原生 voice slot 只有 256 个，且只在混音
+//     线程里按"游标走完"回收；线程不跑就永不回收，第 256 次发声后引擎
+//     永久静音。所以这里自研账本：按 clip 时长记账，到期自己调
+//     AudioVoice.Stop() 释放槽位（Stop 走原生 zan_voice_reset，确实
+//     会把 slot 还回池子）。
+//
+//  3. 设备打不开就整层静默降级。音效是加分项，绝不能变成"能不能跑"
+//     的开关。资源缺失、设备缺失、解码失败一律当无事发生。
+//
+// 环境变量：COREFORGE_AUDIO=0 整层关闭（与 COREFORGE_ART=0 同类调试开关）。
+public class ForgeAudio {
+    // ---- SFX 编号（与 tools/artkit/audio_coreforge.py 的 SFX 表同序）----
+    public static const int BUILD_PLACE = 0;
+    public static const int BUILD_REMOVE = 1;
+    public static const int BUILD_REJECT = 2;
+    public static const int BUILD_ROTATE = 3;
+    public static const int BUILD_BLUEPRINT = 4;
+    public static const int BUILD_SELECT = 5;
+    public static const int BUILD_PRODUCE = 6;
+    public static const int BUILD_FEED = 7;
+    public static const int WEAPON_TURRET = 8;
+    public static const int WEAPON_SCATTER = 9;
+    public static const int WEAPON_SNIPER = 10;
+    public static const int WEAPON_MORTAR = 11;
+    public static const int WEAPON_PRISM = 12;
+    public static const int WEAPON_DRONE = 13;
+    public static const int WEAPON_HIT = 14;
+    public static const int WEAPON_SHIELD = 15;
+    public static const int EXPLODE_ENEMY = 16;
+    public static const int EXPLODE_BUILDING = 17;
+    public static const int EXPLODE_NEST = 18;
+    public static const int EXPLODE_DRONE = 19;
+    public static const int EXPLODE_SUICIDE = 20;
+    public static const int UI_CLICK = 21;
+    public static const int UI_RESEARCH = 22;
+    public static const int UI_ERROR = 23;
+    public static const int UI_WAVE_START = 24;
+    public static const int UI_WAVE_CLEAR = 25;
+    public static const int UI_CORE_LOST = 26;
+
+    public static const int COUNT = 27;
+
+    // 并发 voice 上限。原生池有 256 个，但引擎不回收，这里自己记账，
+    // 所以实际并发数由这个上限决定（远超同时能听见的数量）。
+    const int VOICE_SLOTS = 48;
+
+    static string[] names = new string[COUNT] {
+        "build_place", "build_remove", "build_reject", "build_rotate",
+        "build_blueprint", "build_select", "build_produce", "build_feed",
+        "weapon_turret", "weapon_scatter", "weapon_sniper", "weapon_mortar",
+        "weapon_prism", "weapon_drone", "weapon_hit", "weapon_shield",
+        "explode_enemy", "explode_building", "explode_nest", "explode_drone",
+        "explode_suicide",
+        "ui_click", "ui_research", "ui_error", "ui_wave_start", "ui_wave_clear", "ui_core_lost"
+    };
+
+    static AudioClip[] clips = new AudioClip[COUNT];
+    static int[] coolMs = new int[COUNT];
+    static long[] lastPlayMs = new long[COUNT];
+
+    // 自研 voice 账本：voices[i] 对应一个还没到期的一次播放。
+    static AudioVoice[] voices = new AudioVoice[VOICE_SLOTS];
+    static long[] voiceExpireMs = new long[VOICE_SLOTS];
+
+    static bool opened;
+    static bool disabled;      // 环境变量关掉了整层
+    static bool muted;
+    static long rngState = 2463534242L;
+    static int playedCount;    // 累计成功起播次数（诊断用）
+    static int droppedCount;   // 因冷却/资源缺失被丢掉的次数（诊断用）
+
+    // 设备打开 + clip 装载。幂等；只应由宿主在启动时调一次。
+    public static void Ensure() {
+        if (opened || disabled) { return; }
+        if (Environment.GetEnvironmentVariable("COREFORGE_AUDIO") == "0") { disabled = true; return; }
+        for (int i = 0; i < COUNT; i = i + 1) {
+            coolMs[i] = DefaultCooldown(i);
+            lastPlayMs[i] = -1000000L;
+        }
+        if (!Audio.Open()) { disabled = true; return; }
+        opened = true;
+        Audio.SetVolume(0.8);
+        for (int i = 0; i < COUNT; i = i + 1) {
+            string path = ForgeArt.AssetPath("audio/" + names[i] + ".wav");
+            if (path == "") { continue; }
+            AudioClip clip = AudioClip.LoadWav(path);
+            // 失败时返回的是"非 null 的无效对象"，必须判 IsValid()。
+            if (clip.IsValid()) { clips[i] = clip; }
+        }
+    }
+
+    public static bool Available() { return opened && !disabled && !muted; }
+    public static bool Opened() { return opened; }
+    public static int Played() { return playedCount; }
+    public static int Dropped() { return droppedCount; }
+
+    // 后端驱动名（Windows 走 WASAPI）；未打开时为空串。
+    public static string Driver() {
+        if (!opened) { return ""; }
+        return Audio.DriverName();
+    }
+
+    // 自检：逐个播一遍全部音效，返回成功起播的数量。
+    // 27 个音效是 27 个不同的 key，彼此不受冷却影响，所以起播数就等于
+    // "clip 全部解码成功且设备能接收 voice"的数量。
+    public static int PlayAllForSelfTest() {
+        if (!opened || disabled) { return -1; }
+        int started = 0;
+        for (int i = 0; i < COUNT; i = i + 1) {
+            int before = playedCount;
+            Play(i, BaseGain(i));
+            if (playedCount > before) { started = started + 1; }
+        }
+        return started;
+    }
+
+    // 按 id 用该音效的默认音量播放（多数调用点只需要这一种）。
+    public static void PlayDefault(int id) {
+        Play(id, BaseGain(id));
+    }
+
+    // 播放一个音效。gain 是这一次的基础音量（会被 ±8% 的抖动与冷却裁剪）。
+    public static void Play(int id, double gain) {
+        if (!opened || disabled || muted) { return; }
+        if (id < 0 || id >= COUNT) { return; }
+        AudioClip clip = clips[id];
+        if (clip == null || !clip.IsValid()) { droppedCount = droppedCount + 1; return; }
+        long now = Stopwatch.GetMilliseconds();
+        if (now - lastPlayMs[id] < coolMs[id]) { droppedCount = droppedCount + 1; return; }
+        lastPlayMs[id] = now;
+        double jitter = 0.92 + 0.16 * NextUnit();
+        AudioVoice voice = clip.Play(gain * jitter, 0);
+        if (!voice.IsValid()) { droppedCount = droppedCount + 1; return; }
+        int slot = ReserveVoice(now, clip.DurationMs());
+        if (slot < 0) { return; }
+        voices[slot] = voice;
+        voiceExpireMs[slot] = now + clip.DurationMs() + 60;
+        playedCount = playedCount + 1;
+    }
+
+    // 账本回收：到期自己 Stop，释放原生 voice slot。
+    // 这一步是必须的——引擎的混音线程不跑就永远不回收 slot。
+    public static void Tick() {
+        if (!opened) { return; }
+        long now = Stopwatch.GetMilliseconds();
+        for (int i = 0; i < VOICE_SLOTS; i = i + 1) {
+            if (voices[i] == null) { continue; }
+            if (voiceExpireMs[i] > now) { continue; }
+            voices[i].Stop();
+            voices[i] = null;
+        }
+    }
+
+    // 静音。不去动 Audio.SetVolume(0)：原生主音量为 0 时混音循环不推进
+    // 游标（等于把每个 voice 冻住），用本层的开关更干净。
+    public static void SetMuted(bool value) {
+        if (muted == value) { return; }
+        muted = value;
+        if (!opened) { return; }
+        if (value) {
+            Audio.StopAll();
+            for (int i = 0; i < VOICE_SLOTS; i = i + 1) {
+                if (voices[i] != null) { voices[i].Stop(); voices[i] = null; }
+            }
+        }
+    }
+
+    public static bool Muted() { return muted; }
+
+    public static void Close() {
+        if (!opened) { return; }
+        for (int i = 0; i < VOICE_SLOTS; i = i + 1) {
+            if (voices[i] != null) { voices[i].Stop(); voices[i] = null; }
+        }
+        for (int i = 0; i < COUNT; i = i + 1) {
+            if (clips[i] != null) { clips[i].Close(); clips[i] = null; }
+        }
+        Audio.Close();
+        opened = false;
+    }
+
+    // 抢占一个账本槽：优先空槽，其次已到期的；都满了就抢最早到期那个
+    // （先 Stop 释放它的原生 slot）。返回 -1 表示没有可用槽。
+    static int ReserveVoice(long now, int durationMs) {
+        int oldest = -1;
+        long oldestExpire = 0;
+        for (int i = 0; i < VOICE_SLOTS; i = i + 1) {
+            if (voices[i] == null) { return i; }
+            if (voiceExpireMs[i] <= now) { return i; }
+            if (oldest < 0 || voiceExpireMs[i] < oldestExpire) {
+                oldest = i; oldestExpire = voiceExpireMs[i];
+            }
+        }
+        if (oldest < 0) { return -1; }
+        voices[oldest].Stop();
+        voices[oldest] = null;
+        return oldest;
+    }
+
+    // 确定性 LCG：同一局重放得到同样的抖动序列（截图/自测可复现）。
+    static double NextUnit() {
+        rngState = (rngState * 1103515245L + 12345L) & 0x7FFFFFFF;
+        return (double)rngState / 2147483647.0;
+    }
+
+    // 各音效的基础音量。
+    public static double BaseGain(int id) {
+        if (id == BUILD_PLACE) { return 0.80; }
+        if (id == BUILD_REMOVE) { return 0.75; }
+        if (id == BUILD_REJECT) { return 0.70; }
+        if (id == BUILD_ROTATE) { return 0.55; }
+        if (id == BUILD_BLUEPRINT) { return 0.65; }
+        if (id == BUILD_SELECT) { return 0.60; }
+        if (id == BUILD_PRODUCE) { return 0.70; }
+        if (id == BUILD_FEED) { return 0.70; }
+        if (id == WEAPON_TURRET) { return 0.55; }
+        if (id == WEAPON_SCATTER) { return 0.60; }
+        if (id == WEAPON_SNIPER) { return 0.70; }
+        if (id == WEAPON_MORTAR) { return 0.80; }
+        if (id == WEAPON_PRISM) { return 0.35; }
+        if (id == WEAPON_DRONE) { return 0.45; }
+        if (id == WEAPON_HIT) { return 0.40; }
+        if (id == WEAPON_SHIELD) { return 0.45; }
+        if (id == EXPLODE_ENEMY) { return 0.60; }
+        if (id == EXPLODE_BUILDING) { return 0.85; }
+        if (id == EXPLODE_NEST) { return 0.95; }
+        if (id == EXPLODE_DRONE) { return 0.55; }
+        if (id == EXPLODE_SUICIDE) { return 0.70; }
+        if (id == UI_CLICK) { return 0.45; }
+        if (id == UI_RESEARCH) { return 0.75; }
+        if (id == UI_ERROR) { return 0.70; }
+        if (id == UI_WAVE_START) { return 0.85; }
+        if (id == UI_WAVE_CLEAR) { return 0.80; }
+        if (id == UI_CORE_LOST) { return 0.95; }
+        return 0.6;
+    }
+
+    // 各音效的最小重复间隔（毫秒）。防机关枪：棱镜每 tick 都打、
+    // 命中火花每发子弹都出，必须限流。
+    public static int DefaultCooldown(int id) {
+        if (id == BUILD_PRODUCE) { return 120; }
+        if (id == WEAPON_TURRET) { return 50; }
+        if (id == WEAPON_SCATTER) { return 50; }
+        if (id == WEAPON_SNIPER) { return 60; }
+        if (id == WEAPON_MORTAR) { return 60; }
+        if (id == WEAPON_PRISM) { return 170; }
+        if (id == WEAPON_DRONE) { return 70; }
+        if (id == WEAPON_HIT) { return 55; }
+        if (id == WEAPON_SHIELD) { return 100; }
+        if (id == EXPLODE_ENEMY) { return 60; }
+        if (id == EXPLODE_BUILDING) { return 60; }
+        if (id == EXPLODE_NEST) { return 200; }
+        if (id == EXPLODE_DRONE) { return 60; }
+        if (id == EXPLODE_SUICIDE) { return 60; }
+        if (id == UI_CLICK) { return 40; }
+        if (id == UI_RESEARCH) { return 250; }
+        if (id == UI_ERROR) { return 250; }
+        if (id == UI_WAVE_START) { return 1000; }
+        if (id == UI_WAVE_CLEAR) { return 1000; }
+        if (id == UI_CORE_LOST) { return 2000; }
+        return 45;
+    }
+}

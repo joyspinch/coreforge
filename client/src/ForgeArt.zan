@@ -1,0 +1,246 @@
+using System;
+using System.Diagnostics;
+using System.IO;
+using Gui;
+
+namespace Coreforge;
+
+// 位图素材层：把 client/assets/sprites/coreforge/ 下的 PNG 装进贴图批，
+// 供渲染器画真实贴图（传送带货物图标 / 地面材质叠加）。
+//
+// 素材由 tools/artkit/gen_coreforge.py 按 ASSET-PIPELINE.md §1.1 生成
+// （base3 色阶 + 灰描边 + 光源右上 + 4px 边距 + PNG-32 不预乘 alpha）。
+//
+// 降级约定：资源缺失或解码失败一律静默跳过（句柄 <= 0），渲染器继续走
+// 既有程序化画法——贴图层是"加分项"，绝不能让它变成"能不能跑"的开关。
+//
+// 编译器约束（2026-10 实测，勿改）：
+//   1. 限定名不能出现在数组元素位：`Gui.SpriteBatch[]` 报 undefined type，
+//      必须写无限定 `SpriteBatch[]`。
+//   2. `Gui` 与 `Game.Kit` 各有一个 SpriteBatch，同一编译单元内按简单名
+//      去重。本文件因此**不** using Game.Kit，资源路径自己解析。
+public class ForgeArt {
+    static int[] beltHandle;      // 6 个 16x16 传送带货物图
+    static int[] iconHandle;      // 6 个 32x32 完整物品图标
+    static int[] terrainHandle;   // 8 个 32x32 地形贴图（4 类 × 2 变体）
+    static int buildingHandle;    // 建筑图集 256x96（8 列 × 3 行 × 32px）
+    static SpriteBatch[] beltBatch;
+    static SpriteBatch[] terrainBatch;
+    static SpriteBatch buildingBatch;
+    static bool[] buildingKind;   // 按 BlockKind 序号索引：该 kind 有建筑贴图
+    static bool ready;
+    static string assetRoot;      // 资源根目录（.../coreforge），命中后缓存
+
+    static string[] itemNames = new string[6] { "copper", "lead", "graphite", "silicon", "steel", "titanium" };
+    static string[] terrainNames = new string[4] { "ground", "rock", "water", "oil" };
+
+    // 贴图批容量：地形一格一精灵（可视区最大 ~48×36），物品每格数个。
+    const int TERRAIN_CAP = 2048;
+    const int BELT_CAP = 512;
+    const int BUILDING_CAP = 64;
+
+    // 建筑图集格位：8 列 × 3 行，格位序号 = BlockKind 序号（0..22）。
+    // Empty(0)/Belt(3)/Wall(10)/Pipe(12)/Relay(13) 无图（造型或邻接关系是动态的）。
+    const int BUILDING_COLS = 8;
+    const int BUILDING_SIZE = 32;
+    const int BUILDING_KINDS = 23;
+
+    // 有建筑贴图的 BlockKind 序号（与图集格位一一对应）。
+    static int[] buildingSlots = new int[18] {
+        1, 2, 4, 5, 6, 7, 8, 9, 11, 14, 15, 16, 17, 18, 19, 20, 21, 22
+    };
+
+    public static bool Ready() { return ready; }
+
+    // 幂等初始化：句柄按 key 缓存，重复调用不重复解码。
+    // 环境变量 COREFORGE_ART=0 可整体关掉贴图层（对照程序化画法用，
+    // 也是降级路径的自测入口）；关掉后句柄全为 0，渲染器自动走程序化。
+    public static void Ensure(Canvas c) {
+        if (ready) { return; }
+        ready = true;
+        beltHandle = new int[6];
+        iconHandle = new int[6];
+        terrainHandle = new int[8];
+        beltBatch = new SpriteBatch[6];
+        terrainBatch = new SpriteBatch[8];
+        buildingKind = new bool[BUILDING_KINDS];
+        for (int i = 0; i < buildingSlots.Length; i = i + 1) {
+            buildingKind[buildingSlots[i]] = true;
+        }
+        if (Environment.GetEnvironmentVariable("COREFORGE_ART") == "0") { return; }
+        for (int i = 0; i < 6; i = i + 1) {
+            string name = itemNames[i];
+            beltHandle[i] = c.SpriteHandle(Resolve("sprites/coreforge/items/" + name + "_belt.png"));
+            iconHandle[i] = c.SpriteHandle(Resolve("sprites/coreforge/items/" + name + "_icon.png"));
+            // 贴图没拿到就不建批，省掉 40 字节 × 容量的无用 native 内存。
+            if (beltHandle[i] > 0) { beltBatch[i] = SpriteBatch.Create(BELT_CAP); }
+        }
+        for (int i = 0; i < 4; i = i + 1) {
+            string name = terrainNames[i];
+            for (int v = 0; v < 2; v = v + 1) {
+                int idx = i * 2 + v;
+                terrainHandle[idx] = c.SpriteHandle(Resolve("sprites/coreforge/terrain/" + name + "_" + Convert.ToString(v) + ".png"));
+                if (terrainHandle[idx] > 0) { terrainBatch[idx] = SpriteBatch.Create(TERRAIN_CAP); }
+            }
+        }
+        // 建筑图集：单张 256x96，格位序号 = BlockKind 序号。
+        buildingHandle = c.SpriteHandle(Resolve("sprites/coreforge/buildings/atlas.png"));
+        if (buildingHandle > 0) { buildingBatch = SpriteBatch.Create(BUILDING_CAP); }
+    }
+
+    // 资源定位：以 exe 目录为锚向上最多 4 级找 client/assets/（同
+    // Game.Kit.Assets 策略——IDE / 快捷方式启动时工作目录不可信）；
+    // 找不到再从工作目录向上找。全程找不到就返回相对路径，
+    // SpriteHandle 解码失败返回 0，渲染器自动退回程序化画法。
+    static string Resolve(string rel) {
+        string tail = "client/assets/" + rel;
+        if (assetRoot != "") { return assetRoot + "/" + tail; }
+        string dir = Parent(ProcessHost.SelfExe());
+        for (int up = 0; dir != "" && up < 4; up = up + 1) {
+            string p = dir + "/" + tail;
+            if (File.Exists(p)) { assetRoot = dir; return p; }
+            dir = Parent(dir);
+        }
+        dir = Directory.GetCurrentDirectory();
+        for (int up = 0; dir != "" && up < 4; up = up + 1) {
+            string p = dir + "/" + tail;
+            if (File.Exists(p)) { assetRoot = dir; return p; }
+            dir = Parent(dir);
+        }
+        return tail;
+    }
+
+    // 科技图标（24x24 PNG）的绝对路径；文件不存在返回 ""。
+    //
+    // 与 Resolve 的区别：Resolve 找不到时返回相对路径 "client/assets/<rel>"，
+    // 交给 SpriteHandle 解码失败（句柄 0）→ 渲染层静默退回程序化画法。
+    // 但 Image 控件没有"句柄 0 就不画"的退路——加载失败会画占位（Alt 文本
+    // 或 "..."），所以这里必须让调用方明确知道"没有这张图"，好把控件藏掉。
+    //
+    // 查找顺序与 Resolve 一致（先 exe 目录向上 4 级，再工作目录向上 4 级）。
+    public static string AssetPath(string rel) {
+        string tail = "client/assets/" + rel;
+        if (assetRoot != "") {
+            string cached = assetRoot + "/" + tail;
+            if (File.Exists(cached)) { return cached; }
+        }
+        string dir = Parent(ProcessHost.SelfExe());
+        for (int up = 0; dir != "" && up < 4; up = up + 1) {
+            string p = dir + "/" + tail;
+            if (File.Exists(p)) { assetRoot = dir; return p; }
+            dir = Parent(dir);
+        }
+        dir = Directory.GetCurrentDirectory();
+        for (int up = 0; dir != "" && up < 4; up = up + 1) {
+            string p = dir + "/" + tail;
+            if (File.Exists(p)) { assetRoot = dir; return p; }
+            dir = Parent(dir);
+        }
+        return "";
+    }
+
+    // 取父目录（同时认 / 与 \）；无父目录返回 ""。
+    static string Parent(string path) {
+        int cut = -1;
+        for (int i = 0; i < path.Length; i = i + 1) {
+            string c = path.Substring(i, 1);
+            if (c == "/" || c == "\\") { cut = i; }
+        }
+        if (cut <= 0) { return ""; }
+        return path.Substring(0, cut);
+    }
+
+    // ---------------- 地形 ----------------
+
+    public static void BeginTerrain() {
+        if (!ready) { return; }
+        for (int i = 0; i < terrainBatch.Length; i = i + 1) {
+            if (terrainBatch[i] != null) { terrainBatch[i].Begin(); }
+        }
+    }
+
+    // kind: 0 地 / 1 岩 / 2 水 / 3 油；variant: 0/1（按格哈希选，破除平铺重复）
+    // dx/dy/dw/dh 为画布像素（SpriteBatch 的目标坐标单位）。
+    public static void AddTerrain(int kind, int variant, float dx, float dy, float dw, float dh, int tint) {
+        if (!ready || kind < 0 || kind > 3) { return; }
+        int idx = kind * 2 + (variant & 1);
+        if (terrainHandle[idx] <= 0 || terrainBatch[idx] == null) { return; }
+        terrainBatch[idx].Add(dx, dy, dw, dh, 0.0f, 0.0f, 32.0f, 32.0f, tint);
+    }
+
+    public static void FlushTerrain(Canvas c) {
+        if (!ready) { return; }
+        for (int i = 0; i < terrainBatch.Length; i = i + 1) {
+            if (terrainHandle[i] > 0 && terrainBatch[i] != null) { terrainBatch[i].Draw(c, terrainHandle[i]); }
+        }
+    }
+
+    // ---------------- 物品 ----------------
+
+    public static void BeginItems() {
+        if (!ready) { return; }
+        for (int i = 0; i < beltBatch.Length; i = i + 1) {
+            if (beltBatch[i] != null) { beltBatch[i].Begin(); }
+        }
+    }
+
+    // item: 0..5（与 ItemKind 同序）；dx/dy/dw/dh 为画布像素
+    public static void AddItem(int item, float dx, float dy, float dw, float dh, int tint) {
+        if (!ready || item < 0 || item > 5) { return; }
+        if (beltHandle[item] <= 0 || beltBatch[item] == null) { return; }
+        beltBatch[item].Add(dx, dy, dw, dh, 0.0f, 0.0f, 16.0f, 16.0f, tint);
+    }
+
+    public static void FlushItems(Canvas c) {
+        if (!ready) { return; }
+        for (int i = 0; i < beltBatch.Length; i = i + 1) {
+            if (beltHandle[i] > 0 && beltBatch[i] != null) { beltBatch[i].Draw(c, beltHandle[i]); }
+        }
+    }
+
+    // 32x32 完整图标句柄（库存面板 / 提示用）；0 = 不可用
+    public static int IconHandle(int item) {
+        if (!ready || item < 0 || item > 5) { return 0; }
+        return iconHandle[item];
+    }
+
+    // 该物品有没有可用的传送带货物贴图（16x16）；false = 退回纯色方块。
+    public static bool ItemAvailable(int item) {
+        if (!ready || item < 0 || item > 5) { return false; }
+        return beltHandle[item] > 0 && beltBatch[item] != null;
+    }
+
+    // ---------------- 建筑 ----------------
+
+    // 该 kind 是否有建筑贴图（BlockKind 序号）。
+    // Empty(0)/Belt(3)/Wall(10)/Pipe(12)/Relay(13) 没有图：它们的造型或
+    // 邻接关系是动态的（弯道走向、墙的接缝、管路接口、继电器天线朝向），
+    // 烘进静态图会画错，这五种继续走程序化画法。
+    public static bool BuildingAvailable(int kind) {
+        if (!ready || buildingHandle <= 0 || buildingBatch == null) { return false; }
+        if (kind < 0 || kind >= BUILDING_KINDS) { return false; }
+        return buildingKind[kind];
+    }
+
+    // 建筑静态层：逐格提交（每格一次），让静态贴图与该格动态部分交错，
+    // 保住原有的逐格 z 序——一次批提交会把所有静态层抬到所有动态层之上。
+    // 同一张图集 = 同一纹理，提交时不换纹理、不触发 GL flush。
+    public static void BeginBuildings() {
+        if (!ready || buildingBatch == null) { return; }
+        buildingBatch.Begin();
+    }
+
+    // kind: BlockKind 序号（= 图集格位序号）；dx/dy/dw/dh 为画布像素。
+    public static void AddBuilding(int kind, float dx, float dy, float dw, float dh, int tint) {
+        if (!ready || buildingHandle <= 0 || buildingBatch == null) { return; }
+        if (kind < 0 || kind >= BUILDING_KINDS || !buildingKind[kind]) { return; }
+        float sx = (float)((kind % BUILDING_COLS) * BUILDING_SIZE);
+        float sy = (float)((kind / BUILDING_COLS) * BUILDING_SIZE);
+        buildingBatch.Add(dx, dy, dw, dh, sx, sy, (float)BUILDING_SIZE, (float)BUILDING_SIZE, tint);
+    }
+
+    public static void FlushBuildings(Canvas c) {
+        if (!ready || buildingHandle <= 0 || buildingBatch == null) { return; }
+        buildingBatch.Draw(c, buildingHandle);
+    }
+}

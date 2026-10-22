@@ -1,0 +1,198 @@
+using System;
+using Game.Factory;
+
+namespace Coreforge;
+
+// 事件 / 特效 → 音效的映射层。
+//
+// 它只做一件事：把逻辑层已经产出的信号翻译成"该响哪个音效"。
+// 逻辑层（Game.Factory 公共包）不碰音频，音频也不回写逻辑——两条路
+// 各管各的，改玩法不用跨仓库。
+//
+// 信号源与判定方式：
+//
+//  1. ForgeEvents（9 类事件，sequence 单调递增 + 64 槽环）
+//     Built/Removed/Produced/Researched/WaveStarted/WaveCleared/CoreLost/
+//     NestDestroyed → 建造、生产、研究、波次、胜负、敌巢。
+//
+//  2. ForgeEffect（effectCursor 单调游标 + 320 槽环）
+//     按 kind + 颜色 + size 判别：棱镜光斑、命中火花、护盾吸收、
+//     敌人/建筑/敌巢/无人机/自爆五种爆炸。
+//
+//  3. 建筑 cooldown 跃升 = 炮塔开火。
+//     FireTurrets 里 cooldown 每 tick 减 1，开火时赋
+//     IdleCooldown - (IdleCooldown - powered) * power / 1000（16~150），
+//     所以"本 tick 的 cooldown 比上次采样高"就是开火，且 kind 直接
+//     给出炮塔族。
+//
+//  4. 无人机 cooldown 跃升 = 铁蜂开火（FireDroneShot 不产生任何特效，
+//     BiteNest 同样赋 22，两者都映射到 weapon_drone）。
+//
+// 采样粒度：必须在**模拟步**粒度上采样（main.zan 的 step 循环内），
+// 否则一帧内多次开火会被漏掉。
+public class ForgeSfx {
+    int lastEventSeq;
+    int lastEffectCursor;
+    int[] pending;
+    int[] lastCooldown;      // 建筑上一次的 cooldown
+    int[] lastUnitCooldown;  // 无人机上一次的 cooldown
+
+    ForgeSfx() {
+        pending = new int[ForgeAudio.COUNT];
+        lastCooldown = new int[0];
+        lastUnitCooldown = new int[0];
+    }
+
+    // 换局 / 读档后重置游标，避免把上一局的信号当成本局的。
+    public void Reset(ForgeWorld w) {
+        lastEventSeq = 0;
+        lastEffectCursor = 0;
+        for (int i = 0; i < pending.Length; i = i + 1) { pending[i] = 0; }
+        if (w != null) {
+            lastCooldown = new int[w.buildings.Length];
+            lastUnitCooldown = new int[w.units.Length];
+        } else {
+            lastCooldown = new int[0];
+            lastUnitCooldown = new int[0];
+        }
+    }
+
+    // 一个模拟步推进一次。内部把同一 tick 内的同类信号合并成一次播放
+    // （音量按次数微调），避免齐射时变成机关枪。
+    public void Pump(ForgeWorld w) {
+        if (w == null) { return; }
+        if (pending.Length != ForgeAudio.COUNT) { pending = new int[ForgeAudio.COUNT]; }
+        EnsureSized(w);
+        ScanEvents(w);
+        ScanEffects(w);
+        ScanTurrets(w);
+        ScanUnits(w);
+        Flush();
+    }
+
+    void EnsureSized(ForgeWorld w) {
+        if (lastCooldown.Length != w.buildings.Length) { lastCooldown = new int[w.buildings.Length]; }
+        if (lastUnitCooldown.Length != w.units.Length) { lastUnitCooldown = new int[w.units.Length]; }
+    }
+
+    void Add(int id) {
+        if (id < 0 || id >= pending.Length) { return; }
+        pending[id] = pending[id] + 1;
+    }
+
+    void Flush() {
+        for (int i = 0; i < pending.Length; i = i + 1) {
+            int n = pending[i];
+            if (n <= 0) { continue; }
+            pending[i] = 0;
+            double gain = ForgeAudio.BaseGain(i) * (1.0 + 0.12 * (n - 1));
+            if (gain > 1.0) { gain = 1.0; }
+            ForgeAudio.Play(i, gain);
+        }
+    }
+
+    // ---------------- 事件 ----------------
+
+    void ScanEvents(ForgeWorld w) {
+        int seq = w.events.sequence;
+        if (seq <= lastEventSeq) { return; }
+        int start = lastEventSeq;
+        // 环只有 64 槽：超出部分已经被覆盖，直接从最早的可见项开始。
+        if (seq - start > 64) { start = seq - 64; }
+        for (int i = start; i < seq; i = i + 1) {
+            ForgeEvent e = w.events.entries[i % 64];
+            int id = -1;
+            if (e.kind == ForgeEventKind.Built) { id = ForgeAudio.BUILD_PLACE; }
+            else if (e.kind == ForgeEventKind.Removed) { id = ForgeAudio.BUILD_REMOVE; }
+            else if (e.kind == ForgeEventKind.Produced) { id = ForgeAudio.BUILD_PRODUCE; }
+            else if (e.kind == ForgeEventKind.Researched) { id = ForgeAudio.UI_RESEARCH; }
+            else if (e.kind == ForgeEventKind.WaveStarted) { id = ForgeAudio.UI_WAVE_START; }
+            else if (e.kind == ForgeEventKind.WaveCleared) { id = ForgeAudio.UI_WAVE_CLEAR; }
+            else if (e.kind == ForgeEventKind.CoreLost) { id = ForgeAudio.UI_CORE_LOST; }
+            else if (e.kind == ForgeEventKind.NestDestroyed) { id = ForgeAudio.EXPLODE_NEST; }
+            if (id >= 0) { Add(id); }
+        }
+        lastEventSeq = seq;
+    }
+
+    // ---------------- 特效 ----------------
+
+    void ScanEffects(ForgeWorld w) {
+        int cur = w.effectCursor;
+        if (cur <= lastEffectCursor) { return; }
+        int slots = w.effects.Length;
+        int start = lastEffectCursor;
+        if (cur - start > slots) { start = cur - slots; }
+        for (int i = start; i < cur; i = i + 1) {
+            ForgeEffect e = w.effects[i % slots];
+            if (!e.active) { continue; }
+            int id = EffectSfx(e);
+            if (id >= 0) { Add(id); }
+        }
+        lastEffectCursor = cur;
+    }
+
+    // kind 语义：0 枪口焰 / 1 命中火花 / 2 爆炸闪光 / 3 烟尘 /
+    // 4 浮动奖励文字 / 5 建造尘埃。
+    int EffectSfx(ForgeEffect e) {
+        if (e.kind == 1) {
+            if (ColorIs(e.color, 0xCF8AF2)) { return ForgeAudio.WEAPON_PRISM; }
+            if (ColorIs(e.color, 0xF5D9A0) || ColorIs(e.color, 0xD98E4A)) { return ForgeAudio.WEAPON_HIT; }
+            if (ColorIs(e.color, 0x7ECAEC)) { return ForgeAudio.WEAPON_SHIELD; }
+            return -1;
+        }
+        if (e.kind == 2) {
+            if (ColorIs(e.color, 0xE8B06A)) {
+                // 敌人死亡是 size 8/16，建筑损毁是 size 10。
+                if (e.size >= 10) { return ForgeAudio.EXPLODE_BUILDING; }
+                return ForgeAudio.EXPLODE_ENEMY;
+            }
+            if (ColorIs(e.color, 0x9ADCE8)) { return ForgeAudio.EXPLODE_DRONE; }
+            if (ColorIs(e.color, 0xE8935A)) { return ForgeAudio.EXPLODE_SUICIDE; }
+            // 敌巢摧毁（0xE88A5A）走 NestDestroyed 事件，不在这里重复。
+            return -1;
+        }
+        return -1;
+    }
+
+    // 特效色按 0xAARRGGBB 存。这里只比低 24 位，避开 int 字面量的
+    // 符号问题（0xFFxxxxxx 超过 int 上限，两边写法不一致会判不等）。
+    static bool ColorIs(int color, int rgb) {
+        return (color & 0xFFFFFF) == rgb;
+    }
+
+    // ---------------- 炮塔开火 ----------------
+
+    void ScanTurrets(ForgeWorld w) {
+        int n = w.buildings.Length;
+        for (int cell = 0; cell < n; cell = cell + 1) {
+            ForgeBuilding b = w.buildings[cell];
+            int cur = b.cooldown;
+            if (cur > lastCooldown[cell]) {
+                int id = TurretSfx(b.kind);
+                if (id >= 0) { Add(id); }
+            }
+            lastCooldown[cell] = cur;
+        }
+    }
+
+    int TurretSfx(BlockKind kind) {
+        if (kind == BlockKind.Turret) { return ForgeAudio.WEAPON_TURRET; }
+        if (kind == BlockKind.Scatter) { return ForgeAudio.WEAPON_SCATTER; }
+        if (kind == BlockKind.Sniper) { return ForgeAudio.WEAPON_SNIPER; }
+        if (kind == BlockKind.Mortar) { return ForgeAudio.WEAPON_MORTAR; }
+        return -1;
+    }
+
+    // ---------------- 铁蜂开火 ----------------
+
+    void ScanUnits(ForgeWorld w) {
+        int n = w.units.Length;
+        for (int i = 0; i < n; i = i + 1) {
+            ForgeUnit u = w.units[i];
+            int cur = u.active ? u.cooldown : 0;
+            if (cur > lastUnitCooldown[i]) { Add(ForgeAudio.WEAPON_DRONE); }
+            lastUnitCooldown[i] = cur;
+        }
+    }
+}
