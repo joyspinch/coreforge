@@ -11,6 +11,13 @@ public class ForgeRenderer {
     double scale;
     bool ghost;
     int ghostTint;
+    // 建筑静态贴图层：art 命中时用图集替代程序化静态段。
+    bool art;
+    int artKind;
+    int artX;
+    int artY;
+    int artW;
+    int artH;
     int aimBudget;
     int[] aimCell;
     int[] aimTarget;
@@ -66,6 +73,13 @@ public class ForgeRenderer {
         scale = camera.zoom;
         originX = camera.ScreenX((cell % w.width) * 1000);
         originY = camera.ScreenY((cell / w.width) * 1000);
+    }
+    // 提交本格建筑静态贴图：逐格一次，让贴图与该格动态部分交错，
+    // 保住原有的逐格 z 序（一次批提交会把所有静态层抬到动态层之上）。
+    void SubmitBuilding() {
+        ForgeArt.BeginBuildings();
+        ForgeArt.AddBuilding(artKind, (float)artX, (float)artY, (float)artW, (float)artH, 0xFFFFFFFF);
+        ForgeArt.FlushBuildings(canvas);
     }
     bool Visible(ForgeCamera camera, int x, int y, int margin) {
         return x + margin >= camera.viewportX && y + margin >= camera.viewportY &&
@@ -128,7 +142,10 @@ public class ForgeRenderer {
         Line(high - 6, high, high, high, color, 2); Line(high, high, high, high - 6, color, 2);
     }
 
-    void Terrain(ForgeWorld w, ForgeCamera camera, int cell) {
+    // 地面第一趟：底色（区域基色 + 格内抖动 + 液体底色）。
+    // 材质贴图在这一趟以半透明叠加进批，整片地形画完后统一提交——
+    // 于是贴图正好压在底色之上、岩石矿脉之下。
+    void TerrainBase(ForgeWorld w, ForgeCamera camera, int cell) {
         ForgeTile tile = w.tiles[cell];
         int tx = cell % w.width; int ty = cell / w.width;
         int hash = (tx * 7349 + ty * 9151 + (w.seed & 65535) * 31) & 1023;
@@ -142,11 +159,30 @@ public class ForgeRenderer {
         if (hash % 7 == 0) { ground = 0xFF605845; }
         else if (hash % 7 == 1) { ground = 0xFF4E4938; }
         canvas.FillRect(originX, originY, width, height, ground);
+        int kind = 0;
         if (tile.terrain == TerrainKind.Water || tile.terrain == TerrainKind.Oil) {
             bool water = tile.terrain == TerrainKind.Water;
             int liquid = water ? 0xFF2E5F63 : 0xFF332A44;
             if (hash % 3 == 0) { liquid = water ? 0xFF33686C : 0xFF3A2F4E; }
             canvas.FillRect(originX, originY, width, height, liquid);
+            kind = water ? 2 : 3;
+        } else if (tile.terrain == TerrainKind.Rock) {
+            kind = 1;
+        }
+        // 材质贴图：32px 源图按格屏幕尺寸缩放，半透明压住底色。
+        // 变体按格哈希取，破除整片同图的重复感。
+        ForgeArt.AddTerrain(kind, hash & 1, (float)originX, (float)originY, (float)width, (float)height, 0x78FFFFFF);
+    }
+
+    // 地面第二趟：细节（液体边缘与波纹、碎屑草簇、岩石、矿脉）。
+    // 必须排在材质贴图之后，所以与底色分成两趟。
+    void TerrainDetail(ForgeWorld w, ForgeCamera camera, int cell) {
+        ForgeTile tile = w.tiles[cell];
+        int tx = cell % w.width; int ty = cell / w.width;
+        int hash = (tx * 7349 + ty * 9151 + (w.seed & 65535) * 31) & 1023;
+        AtCell(w, camera, cell);
+        if (tile.terrain == TerrainKind.Water || tile.terrain == TerrainKind.Oil) {
+            bool water = tile.terrain == TerrainKind.Water;
             for (int d = 0; d < 4; d = d + 1) {
                 int adjacent = w.Neighbor(cell, d);
                 if (adjacent < 0 || w.tiles[adjacent].terrain != tile.terrain) {
@@ -305,11 +341,15 @@ public class ForgeRenderer {
         TurnRect(2, 5, 3, 2, direction, 0xFFDBBA70);
     }
     void Drill(ForgeWorld w, ForgeBuilding b, int direction) {
-        Plate(0xFF74735C);
-        Rect(8, 7, 16, 18, 0xFF253839);
-        Line(6, 9, 25, 24, 0xFFD5AE63, 3);
-        Line(6, 24, 25, 9, 0xFFAD8750, 3);
-        Disc(16, 16, 9, 0xFF172B31);
+        if (art) {
+            SubmitBuilding();
+        } else {
+            Plate(0xFF74735C);
+            Rect(8, 7, 16, 18, 0xFF253839);
+            Line(6, 9, 25, 24, 0xFFD5AE63, 3);
+            Line(6, 24, 25, 9, 0xFFAD8750, 3);
+            Disc(16, 16, 9, 0xFF172B31);
+        }
         double angle = (b.efficiency > 0 || ghost) ? w.tick * 0.16 : 0.4;
         for (int tooth = 0; tooth < 4; tooth = tooth + 1) {
             double theta = angle + tooth * 1.57079632679;
@@ -322,38 +362,54 @@ public class ForgeRenderer {
         Arrow(31, 16, direction, 0xFFE0B263);
     }
     void Router(ForgeBuilding b, int direction) {
-        Plate(0xFF7E7354);
-        for (int d = 0; d < 4; d = d + 1) { TurnRect(23, 12, 9, 8, d, 0xFF293B3B); }
-        Disc(16, 16, 8, 0xFFB4985E);
-        Disc(16, 16, 5, 0xFF253C3F);
-        Line(12, 16, 20, 16, 0xFFE3CE8A, 2); Line(16, 12, 16, 20, 0xFFE3CE8A, 2);
+        if (art) {
+            SubmitBuilding();
+        } else {
+            Plate(0xFF7E7354);
+            for (int d = 0; d < 4; d = d + 1) { TurnRect(23, 12, 9, 8, d, 0xFF293B3B); }
+            Disc(16, 16, 8, 0xFFB4985E);
+            Disc(16, 16, 5, 0xFF253C3F);
+            Line(12, 16, 20, 16, 0xFFE3CE8A, 2); Line(16, 12, 16, 20, 0xFFE3CE8A, 2);
+        }
         Arrow(29, 16, direction, 0xFFF0BE64);
         Arrow(29, 16, (direction + 1) % 4, 0xFF7CADA0);
         Arrow(29, 16, (direction + 3) % 4, 0xFF7CADA0);
         Disc(16, 16, 2, b.roundRobin % 2 == 0 ? 0xFFFFD78B : 0xFFE8B96A);
     }
     void Furnace(ForgeWorld w, ForgeBuilding b, int direction) {
-        Plate(0xFF6F6260);
-        Rect(7, 6, 18, 19, 0xFF232D34);
-        Rect(10, 8, 12, 14, 0xFF59383A);
         bool active = b.efficiency > 0 && b.progress > 0;
+        if (art) {
+            // 图集里已烘进冷态炉膛底色与栅格；点火后动态火苗整块盖住。
+            SubmitBuilding();
+        } else {
+            Plate(0xFF6F6260);
+            Rect(7, 6, 18, 19, 0xFF232D34);
+            Rect(10, 8, 12, 14, 0xFF59383A);
+            if (!active && !ghost) { Rect(12, 11, 8, 8, 0xFF8B5844); }
+        }
         if (active || ghost) {
             Glow(16, 15, 19, 0xFFE8A062, 60);
             Rect(11, 10, 10, 10, 0xFFD37648);
             Rect(13, 12, 6, 6, 0xFFFFD997);
             Line(9, 9, 13, 13 + w.tick % 3, 0xFFE8EDBA, 1);
             Line(24, 9, 19, 14, 0xFFE8EDBA, 1);
-        } else { Rect(12, 11, 8, 8, 0xFF8B5844); }
-        Rect(5, 7, 4, 17, 0xFF9AA397); Rect(23, 7, 4, 17, 0xFF9AA397);
-        Rect(5, 10, 4, 3, 0xFF444D4F); Rect(23, 10, 4, 3, 0xFF444D4F);
-        Rect(7, 25, 18, 3, 0xFFC29658);
+        }
+        if (!art) {
+            Rect(5, 7, 4, 17, 0xFF9AA397); Rect(23, 7, 4, 17, 0xFF9AA397);
+            Rect(5, 10, 4, 3, 0xFF444D4F); Rect(23, 10, 4, 3, 0xFF444D4F);
+            Rect(7, 25, 18, 3, 0xFFC29658);
+        }
         TurnRect(27, 12, 5, 8, direction, 0xFF314244);
         Arrow(31, 16, direction, 0xFFDFC18A);
     }
     void Assembler(ForgeWorld w, ForgeBuilding b, int direction) {
-        Plate(0xFF526B70);
-        Rect(8, 8, 16, 16, 0xFF20363F);
-        Frame(10, 10, 12, 12, 0xFF82C6C4, 1);
+        if (art) {
+            SubmitBuilding();
+        } else {
+            Plate(0xFF526B70);
+            Rect(8, 8, 16, 16, 0xFF20363F);
+            Frame(10, 10, 12, 12, 0xFF82C6C4, 1);
+        }
         Rect(13, 12, 7, 8, b.progress > 0 ? 0xFF9DE2D4 : 0xFF507C83);
         Line(13, 12, 19, 18, 0xFFDBF1DF, 1);
         int slide = b.progress > 0 && b.efficiency > 0 ? (w.tick / 3) % 6 : 2;
@@ -366,46 +422,64 @@ public class ForgeRenderer {
         Arrow(31, 16, direction, 0xFFBBDCCE);
     }
     void Generator(ForgeWorld w, ForgeBuilding b) {
-        Plate(0xFF74785C);
-        Rect(8, 6, 16, 20, 0xFF263B3C);
-        Rect(10, 7, 12, 18, 0xFFB58E52);
-        for (int i = 0; i < 4; i = i + 1) {
-            Rect(7, 8 + i * 5, 18, 2, 0xFFD0B878);
-            Rect(7, 10 + i * 5, 3, 2, 0xFF5C7367);
-        }
         int pulse = (w.tick / 6) % 3;
+        if (art) {
+            SubmitBuilding();
+        } else {
+            Plate(0xFF74785C);
+            Rect(8, 6, 16, 20, 0xFF263B3C);
+            Rect(10, 7, 12, 18, 0xFFB58E52);
+            for (int i = 0; i < 4; i = i + 1) {
+                Rect(7, 8 + i * 5, 18, 2, 0xFFD0B878);
+                Rect(7, 10 + i * 5, 3, 2, 0xFF5C7367);
+            }
+        }
         Rect(14, 7, 4, 19, b.fuelTicks > 0 ? 0xFFACEDBC : 0xFF80BCA4);
         Rect(14, 10 + pulse * 5, 4, 3, 0xFFE1F0BE);
-        Rect(26, 10, 3, 12, 0xFF283B3D);
-        Rect(26, 12, 3, 3, 0xFF7FE0C1);
+        if (!art) {
+            Rect(26, 10, 3, 12, 0xFF283B3D);
+            Rect(26, 12, 3, 3, 0xFF7FE0C1);
+        }
     }
     void Battery(ForgeBuilding b) {
-        Plate(0xFF5B7268);
-        Rect(8, 5, 5, 3, 0xFFCCBD8F); Rect(19, 5, 5, 3, 0xFFCCBD8F);
-        Rect(7, 9, 18, 15, 0xFF1F3439);
         int charge = (int)Math.Min(4.0, b.energy / 3000000.0);
+        if (art) {
+            // 图集里烘了空电色的电芯槽，动态层按电量覆盖槽内颜色。
+            SubmitBuilding();
+        } else {
+            Plate(0xFF5B7268);
+            Rect(8, 5, 5, 3, 0xFFCCBD8F); Rect(19, 5, 5, 3, 0xFFCCBD8F);
+            Rect(7, 9, 18, 15, 0xFF1F3439);
+        }
         for (int i = 0; i < 4; i = i + 1) {
             Rect(9 + i * 4, 11, 3, 10, i < charge ? 0xFF9FD9A7 : 0xFF43584D);
             if (i < charge) { Rect(9 + i * 4, 11, 3, 2, 0xFFD4EDB5); }
         }
-        Line(11, 26, 21, 26, 0xFFB4AB70, 2);
+        if (!art) { Line(11, 26, 21, 26, 0xFFB4AB70, 2); }
     }
     void Core(ForgeWorld w) {
         int pulse = (w.tick / 5) % 12;
         if (pulse > 6) { pulse = 12 - pulse; }
+        // 外辉光与外环保留程序化：它们是 sprite 之下的层。
         Glow(16, 16, 44 + pulse * 2, 0xFFE9B45F, 66);
         Glow(16, 16, 24, 0xFFFFD98F, 60);
         Ring(16, 16, 22, 0x606EC7B8, 1);
-        Plate(0xFF947C52);
-        Rect(7, 5, 18, 22, 0xFF273B3F);
-        Rect(5, 9, 22, 14, 0xFF273B3F);
-        Ring(16, 16, 10, 0xFFBE985A, 3);
+        if (art) {
+            SubmitBuilding();
+        } else {
+            Plate(0xFF947C52);
+            Rect(7, 5, 18, 22, 0xFF273B3F);
+            Rect(5, 9, 22, 14, 0xFF273B3F);
+            Ring(16, 16, 10, 0xFFBE985A, 3);
+        }
         Sector(16, 16, 8, 10, w.tick % 360, w.tick % 360 + 105, 0xFFB6E8CF);
-        Disc(16, 16, 6, 0xFFEDA65B);
-        Disc(15, 15, 4, 0xFFFFDA8F);
-        Disc(15, 14, 2, 0xFFFFF2C1);
-        Rect(13, 2, 6, 4, 0xFFC6B180); Rect(13, 26, 6, 4, 0xFFC6B180);
-        Rect(2, 13, 4, 6, 0xFF7CC6B4); Rect(26, 13, 4, 6, 0xFF7CC6B4);
+        if (!art) {
+            Disc(16, 16, 6, 0xFFEDA65B);
+            Disc(15, 15, 4, 0xFFFFDA8F);
+            Disc(15, 14, 2, 0xFFFFF2C1);
+            Rect(13, 2, 6, 4, 0xFFC6B180); Rect(13, 26, 6, 4, 0xFFC6B180);
+            Rect(2, 13, 4, 6, 0xFF7CC6B4); Rect(26, 13, 4, 6, 0xFF7CC6B4);
+        }
     }
     void Wall(ForgeWorld w, int cell, ForgeBuilding b) {
         Rect(2, 5, 30, 27, 0x80262A25);
@@ -427,13 +501,19 @@ public class ForgeRenderer {
         }
     }
     void Pump(ForgeWorld w, ForgeBuilding b, bool oil) {
-        Plate(oil ? 0xFF635A69 : 0xFF557F79);
-        Rect(4, 13, 24, 7, oil ? 0xFF312B40 : 0xFF23454D);
-        Disc(16, 16, 10, 0xFF243941);
-        Ring(16, 16, 8, oil ? 0xFFB49BBB : 0xFF9CCABC, 2);
+        if (art) {
+            SubmitBuilding();
+        } else {
+            Plate(oil ? 0xFF635A69 : 0xFF557F79);
+            Rect(4, 13, 24, 7, oil ? 0xFF312B40 : 0xFF23454D);
+            Disc(16, 16, 10, 0xFF243941);
+            Ring(16, 16, 8, oil ? 0xFFB49BBB : 0xFF9CCABC, 2);
+            if (oil) {
+                Line(8, 24, 16, 8, 0xFFA3ACA0, 3);
+                Line(24, 24, 16, 8, 0xFF6D8B80, 3);
+            }
+        }
         if (oil) {
-            Line(8, 24, 16, 8, 0xFFA3ACA0, 3);
-            Line(24, 24, 16, 8, 0xFF6D8B80, 3);
             int bob = b.efficiency > 0 ? (w.tick / 5) % 4 : 1;
             Line(8, 9 + bob, 26, 7 - bob, 0xFFDCB97A, 3);
             Line(25, 8 - bob, 25, 22, 0xFFDBBD91, 1);
@@ -524,9 +604,13 @@ public class ForgeRenderer {
         if (b.kind == BlockKind.Scatter) { ScatterTurret(w, cell, b, direction); return; }
         if (b.kind == BlockKind.Sniper) { SniperTurret(w, cell, b, direction); return; }
         if (b.kind == BlockKind.Mortar) { MortarTurret(w, cell, b, direction); return; }
-        Plate(0xFF6E7970);
-        Disc(16, 17, 10, 0xFF1E3138);
-        Ring(16, 16, 8, 0xFFB5A579, 2);
+        if (art) {
+            SubmitBuilding();
+        } else {
+            Plate(0xFF6E7970);
+            Disc(16, 17, 10, 0xFF1E3138);
+            Ring(16, 16, 8, 0xFFB5A579, 2);
+        }
         AimVector(w, cell, direction, true);
         double dx = aimDX; double dy = aimDY;
         int muzzleX = 16 + (int)Math.Round(dx * 16.0); int muzzleY = 16 + (int)Math.Round(dy * 16.0);
@@ -542,9 +626,13 @@ public class ForgeRenderer {
     }
     // 苍穹散射：双管并排，管身短粗，弹色偏铜。
     void ScatterTurret(ForgeWorld w, int cell, ForgeBuilding b, int direction) {
-        Plate(0xFF6B6458);
-        Disc(16, 17, 10, 0xFF2A2620);
-        Ring(16, 16, 8, 0xFFC0925E, 2);
+        if (art) {
+            SubmitBuilding();
+        } else {
+            Plate(0xFF6B6458);
+            Disc(16, 17, 10, 0xFF2A2620);
+            Ring(16, 16, 8, 0xFFC0925E, 2);
+        }
         AimVector(w, cell, direction, true);
         double dx = aimDX; double dy = aimDY;
         int muzzleX = 16 + (int)Math.Round(dx * 15.0); int muzzleY = 16 + (int)Math.Round(dy * 15.0);
@@ -559,9 +647,13 @@ public class ForgeRenderer {
     }
     // 穿云狙炮：细长身管伸出格外一截，镜筒高光。
     void SniperTurret(ForgeWorld w, int cell, ForgeBuilding b, int direction) {
-        Plate(0xFF5F6E74);
-        Disc(16, 17, 10, 0xFF16222E);
-        Ring(16, 16, 8, 0xFF8FA9C9, 2);
+        if (art) {
+            SubmitBuilding();
+        } else {
+            Plate(0xFF5F6E74);
+            Disc(16, 17, 10, 0xFF16222E);
+            Ring(16, 16, 8, 0xFF8FA9C9, 2);
+        }
         AimVector(w, cell, direction, true);
         double dx = aimDX; double dy = aimDY;
         int muzzleX = 16 + (int)Math.Round(dx * 19.0); int muzzleY = 16 + (int)Math.Round(dy * 19.0);
@@ -578,9 +670,13 @@ public class ForgeRenderer {
     }
     // 崩地臼炮：粗短仰角筒口，宽基座；身管只对地目标转动。
     void MortarTurret(ForgeWorld w, int cell, ForgeBuilding b, int direction) {
-        Plate(0xFF716A56);
-        Disc(16, 16, 12, 0xFF2C281E);
-        Ring(16, 16, 9, 0xFFB59F6A, 2);
+        if (art) {
+            SubmitBuilding();
+        } else {
+            Plate(0xFF716A56);
+            Disc(16, 16, 12, 0xFF2C281E);
+            Ring(16, 16, 9, 0xFFB59F6A, 2);
+        }
         AimVector(w, cell, direction, false);
         double dx = aimDX; double dy = aimDY;
         int muzzleX = 16 + (int)Math.Round(dx * 10.0); int muzzleY = 16 + (int)Math.Round(dy * 10.0);
@@ -598,12 +694,16 @@ public class ForgeRenderer {
     }
     // 铁蜂机巢：起降坪 + 组装坞；备料组装时指示灯闪烁并亮进度弧，满编待机。
     void DroneFab(ForgeWorld w, ForgeBuilding b) {
-        Plate(0xFF66745E);
-        Rect(6, 6, 20, 20, 0xFF22343A);
-        Ring(16, 16, 10, 0xFF8FA08A, 2);
-        Line(12, 12, 12, 20, 0xFF9FB39B, 2);
-        Line(20, 12, 20, 20, 0xFF9FB39B, 2);
-        Line(12, 16, 20, 16, 0xFF9FB39B, 2);
+        if (art) {
+            SubmitBuilding();
+        } else {
+            Plate(0xFF66745E);
+            Rect(6, 6, 20, 20, 0xFF22343A);
+            Ring(16, 16, 10, 0xFF8FA08A, 2);
+            Line(12, 12, 12, 20, 0xFF9FB39B, 2);
+            Line(20, 12, 20, 20, 0xFF9FB39B, 2);
+            Line(12, 16, 20, 16, 0xFF9FB39B, 2);
+        }
         bool ready = b.stock.Get(0) >= 8 && b.stock.Get(1) >= 5 && b.stock.Get(3) >= 4;
         bool capped = w.ActiveUnits() >= ForgeGrid.DroneLimit();
         bool busy = !ghost && b.efficiency > 0 && ready && !capped;
@@ -614,9 +714,13 @@ public class ForgeRenderer {
     }
     // 棱镜聚焦塔：悬浮水晶棱柱，通电锁定时棱面过载发光；光束本体在 Beams 画。
     void PrismTower(ForgeWorld w, int cell, ForgeBuilding b, int direction) {
-        Plate(0xFF5E6A80);
-        Disc(16, 17, 10, 0xFF1C2438);
-        Ring(16, 16, 8, 0xFF8E9CC4, 2);
+        if (art) {
+            SubmitBuilding();
+        } else {
+            Plate(0xFF5E6A80);
+            Disc(16, 17, 10, 0xFF1C2438);
+            Ring(16, 16, 8, 0xFF8E9CC4, 2);
+        }
         AimVector(w, cell, direction, true);
         double dx = aimDX; double dy = aimDY;
         bool hot = !ghost && b.efficiency > 0 && w.enemyCount > 0;
@@ -635,9 +739,13 @@ public class ForgeRenderer {
     }
     // 修复投影：绿色医疗十字悬于发射环上，通电修复时十字呼吸发光、外环扫掠。
     void RepairTower(ForgeWorld w, int cell, ForgeBuilding b) {
-        Plate(0xFF5E7A66);
-        Disc(16, 17, 10, 0xFF18291E);
-        Ring(16, 16, 8, 0xFF9BCAA0, 2);
+        if (art) {
+            SubmitBuilding();
+        } else {
+            Plate(0xFF5E7A66);
+            Disc(16, 17, 10, 0xFF18291E);
+            Ring(16, 16, 8, 0xFF9BCAA0, 2);
+        }
         bool on = !ghost && b.efficiency > 0;
         if (on) { Glow(16, 13, 16, 0xFF9DE8B0, 40); }
         int sweep = (w.tick / 2 + cell) % 360;
@@ -652,9 +760,13 @@ public class ForgeRenderer {
     }
     // 过护投影：琥珀转子加速旋转化作过载光轮，通电时中央迸发辉光。
     void OverdriveTower(ForgeWorld w, int cell, ForgeBuilding b) {
-        Plate(0xFF7A6A5E);
-        Disc(16, 17, 10, 0xFF2A2118);
-        Ring(16, 16, 8, 0xFFE0A85E, 2);
+        if (art) {
+            SubmitBuilding();
+        } else {
+            Plate(0xFF7A6A5E);
+            Disc(16, 17, 10, 0xFF2A2118);
+            Ring(16, 16, 8, 0xFFE0A85E, 2);
+        }
         bool on = !ghost && b.efficiency > 0;
         int spin = (w.tick / (on ? 1 : 3) + cell * 7) % 360;
         for (int vane = 0; vane < 3; vane = vane + 1) {
@@ -672,9 +784,13 @@ public class ForgeRenderer {
     }
     // 力场护盾：青色发生器，盾值存续时整圈力场泡微光呼吸，破碎后只剩发生器本体。
     void ShieldTower(ForgeWorld w, int cell, ForgeBuilding b) {
-        Plate(0xFF5E6E7A);
-        Disc(16, 17, 10, 0xFF16222E);
-        Ring(16, 16, 8, 0xFF7ECAEC, 2);
+        if (art) {
+            SubmitBuilding();
+        } else {
+            Plate(0xFF5E6E7A);
+            Disc(16, 17, 10, 0xFF16222E);
+            Ring(16, 16, 8, 0xFF7ECAEC, 2);
+        }
         bool on = !ghost && b.efficiency > 0;
         if (on) { Glow(16, 14, 14, 0xFF9DE4F2, 45); }
         Line(16, 7, 22, 14, 0xFF9DE4F2, 2);
@@ -693,6 +809,14 @@ public class ForgeRenderer {
     }
     void Building(ForgeWorld w, ForgeCamera camera, int cell, BlockKind kind, ForgeBuilding b, int direction) {
         AtCell(w, camera, cell);
+        // 贴图命中条件：非 ghost（ghost 的混合色用乘法 tint 复刻不了，
+        // 强制回退程序化）且图集里有这一格。
+        artKind = (int)kind;
+        art = !ghost && ForgeArt.BuildingAvailable(artKind);
+        int tx = cell % w.width; int ty = cell / w.width;
+        artX = originX; artY = originY;
+        artW = camera.ScreenX((tx + 1) * 1000) - originX;
+        artH = camera.ScreenY((ty + 1) * 1000) - originY;
         if (kind == BlockKind.Core) { Core(w); }
         else if (kind == BlockKind.Belt) { Belt(w, cell, direction); }
         else if (kind == BlockKind.Drill) { Drill(w, b, direction); }
@@ -748,11 +872,19 @@ public class ForgeRenderer {
             int size = ForgeGrid.Max(3, (int)Math.Round(6.0 * camera.zoom));
             int edge = ForgeGrid.Max(1, (int)Math.Round(camera.zoom));
             int half = size / 2;
-            canvas.FillRect(px - half, py - half + edge, size + edge, size + edge, 0xC018292D);
-            canvas.FillRect(px - half, py - half, size, size, ItemColor(b.cargo[slot] - 1));
-            canvas.FillRect(px - half, py - half, size - edge, edge, 0xFFDCE2C8);
-            if (b.cargo[slot] == 3 && size >= 4) {
-                canvas.DrawLine(px - half, py + half - 1, px + half - 1, py - half + 1, 0xFF384651, 1);
+            int item = b.cargo[slot] - 1;
+            // 货物：优先用真实物品贴图（16px 源图），不可用时退回纯色方块。
+            int art = ForgeGrid.Max(6, (int)Math.Round(12.0 * camera.zoom));
+            if (ForgeArt.ItemAvailable(item)) {
+                canvas.FillRect(px - art / 2, py - art / 2 + edge, art, art, 0x600F1C1F);
+                ForgeArt.AddItem(item, (float)(px - art / 2), (float)(py - art / 2), (float)art, (float)art, -1);
+            } else {
+                canvas.FillRect(px - half, py - half + edge, size + edge, size + edge, 0xC018292D);
+                canvas.FillRect(px - half, py - half, size, size, ItemColor(item));
+                canvas.FillRect(px - half, py - half, size - edge, edge, 0xFFDCE2C8);
+                if (b.cargo[slot] == 3 && size >= 4) {
+                    canvas.DrawLine(px - half, py + half - 1, px + half - 1, py - half + 1, 0xFF384651, 1);
+                }
             }
         }
     }
@@ -1171,8 +1303,15 @@ public class ForgeRenderer {
         int top = ForgeGrid.Max(0, (int)Math.Floor(camera.y - camera.viewportH * 0.5 / pixels) - 2);
         int right = ForgeGrid.Min(w.width - 1, (int)Math.Ceiling(camera.x + camera.viewportW * 0.5 / pixels) + 2);
         int bottom = ForgeGrid.Min(w.height - 1, (int)Math.Ceiling(camera.y + camera.viewportH * 0.5 / pixels) + 2);
+        ForgeArt.Ensure(c);
+        ForgeArt.BeginTerrain();
         for (int ty = top; ty <= bottom; ty = ty + 1) {
-            for (int tx = left; tx <= right; tx = tx + 1) { Terrain(w, camera, ty * w.width + tx); }
+            for (int tx = left; tx <= right; tx = tx + 1) { TerrainBase(w, camera, ty * w.width + tx); }
+        }
+        // 材质贴图一次性提交：压在底色之上。
+        ForgeArt.FlushTerrain(c);
+        for (int ty = top; ty <= bottom; ty = ty + 1) {
+            for (int tx = left; tx <= right; tx = tx + 1) { TerrainDetail(w, camera, ty * w.width + tx); }
         }
         if (left <= right && top <= bottom) { Grid(w, camera, left, top, right, bottom); }
         int mapX = camera.ScreenX(0); int mapY = camera.ScreenY(0);
@@ -1203,6 +1342,7 @@ public class ForgeRenderer {
                 if (b.kind != BlockKind.Empty) { Building(w, camera, cell, b.kind, b, b.direction); }
             }
         }
+        ForgeArt.BeginItems();
         for (int ty = top; ty <= bottom; ty = ty + 1) {
             for (int tx = left; tx <= right; tx = tx + 1) {
                 int cell = ty * w.width + tx;
@@ -1224,6 +1364,8 @@ public class ForgeRenderer {
                 }
             }
         }
+        // 货物贴图一次性提交：画在血条之下、敌人之上。
+        ForgeArt.FlushItems(c);
         for (int i = 0; i < w.enemies.Length; i = i + 1) {
             if (w.enemies[i].active) { Enemy(w, camera, w.enemies[i], i); }
         }

@@ -3,10 +3,10 @@
 <head><meta charset="utf-8"><title>CoreforgeHud</title></head>
 <body data-zan-design id="CoreforgeHud" class="cf-root" data-layout-mode="1">
 
-  <!-- 顶栏：品牌 + 资源 + 波次 + 节奏按钮 -->
+  <!-- 顶栏：资源 + 波次 + 节奏按钮
+       品牌字不再在这里出现：框架窗口条已经写着「炉心边境 · COREFORGE」，
+       两条标题栏并排是重复，且把首屏视线分成两半。 -->
   <zan-flex id="Topbar" class="cf-topbar align-center" data-dock="1" data-fh="46" data-gap="10">
-    <label class="cf-brand">炉心边境</label>
-    <label class="cf-brand-sub">COREFORGE</label>
     <zan-flex class="cf-pill align-center" style="height:24px;padding:0 10px">
       <div class="cf-dot cf-copper" style="width:10px;height:10px"></div>
       <label id="rCopper" class="cf-pilltext" data-dock="5">铜 0</label>
@@ -57,8 +57,10 @@
     <label id="obj4" class="cf-obj" data-wrap="true"></label>
   </zan-flex>
 
-  <!-- 选中/点检详情（右上） -->
-  <zan-flex id="Detail" class="cf-panel column" data-position="1" data-anchor="1" data-fx="1000" data-fy="14" data-fw="266" data-fh="230">
+  <!-- 选中/点检详情（右上）
+       高度不写死：内容（标题 + 可换行正文 + 条件按钮行）随选中对象变化，
+       固定 data-fh="230" 会在正文只有两行时留出 200 多像素的空面板。 -->
+  <zan-flex id="Detail" class="cf-panel column" data-position="1" data-anchor="1" data-fx="1000" data-fy="14" data-fw="266">
     <label id="detTitle" class="cf-paneltitle"></label>
     <label id="detBody" class="cf-detbody" data-wrap="true"></label>
     <zan-flex class="align-center" data-dock="5" data-gap="6">
@@ -73,28 +75,96 @@
     <label id="bannerText" class="cf-bannertext"></label>
   </zan-flex>
 
-  <!-- 科技面板（左侧，与目标面板互斥显示） -->
-  <zan-flex id="Tech" class="cf-panel column" data-position="1" data-anchor="1" data-fx="14" data-fy="14" data-fw="330" data-fh="560">
-    <label class="cf-paneltitle">研究与扩张</label>
-    <button id="tech1" class="cf-techrow" data-on-click="hudTech1"></button>
-    <button id="tech2" class="cf-techrow" data-on-click="hudTech2"></button>
-    <button id="tech3" class="cf-techrow" data-on-click="hudTech3"></button>
-    <button id="tech4" class="cf-techrow" data-on-click="hudTech4"></button>
-    <button id="tech5" class="cf-techrow" data-on-click="hudTech5"></button>
-    <button id="tech6" class="cf-techrow" data-on-click="hudTech6"></button>
-    <button id="tech7" class="cf-techrow" data-on-click="hudTech7"></button>
-    <button id="tech8" class="cf-techrow" data-on-click="hudTech8"></button>
-    <button id="tech9" class="cf-techrow" data-on-click="hudTech9"></button>
-    <button id="tech10" class="cf-techrow" data-on-click="hudTech10"></button>
-    <button id="tech11" class="cf-techrow" data-on-click="hudTech11"></button>
-    <button id="tech12" class="cf-techrow" data-on-click="hudTech12"></button>
-    <button id="tech13" class="cf-techrow" data-on-click="hudTech13"></button>
-    <button id="tech14" class="cf-techrow" data-on-click="hudTech14"></button>
+  <!-- 科技面板（左侧，与目标面板互斥显示）
+       科技图标走 <img> 控件：CSS 的 background-image 在本引擎不可用，
+       Button.Icon 是 SVG 字形名也承载不了 PNG，只有 Image 控件能显示
+       位图。src 不能写死在设计稿里（路径随安装位置变），由
+       CoreforgeHud.ApplyTechIcons 在运行时注入；缺图则整枚图标隐藏。
+       <img> 必须是 <button> 的兄弟节点（塞进按钮里会和按钮自绘文字重叠）。
+       科技行是单行卡：一行放不下"状态词+名称+成本"，所以状态只用
+       字形表示，含义靠图例与文字色（图例在标题行下方）。 -->
+  <zan-flex id="Tech" class="cf-panel column" data-position="1" data-anchor="1" data-fx="14" data-fy="14" data-fw="330" data-fh="600">
+    <zan-flex class="align-center" data-gap="6">
+      <img id="techIconBase" class="cf-techicon" alt="基础工程"/>
+      <label class="cf-paneltitle">研究与扩张</label>
+    </zan-flex>
+    <label class="cf-legend" data-wrap="true">✔已完成 ▶可研究 ⚠缺资源 🔒未解锁</label>
+    <zan-flex class="align-center" data-gap="6">
+      <img id="techIconThermo" class="cf-techicon" alt="热工学"/>
+      <button id="tech1" class="cf-techrow grow" data-on-click="hudTech1"></button>
+    </zan-flex>
+    <zan-flex class="align-center" data-gap="6">
+      <img id="techIconLattice" class="cf-techicon" alt="晶格工程"/>
+      <button id="tech2" class="cf-techrow grow" data-on-click="hudTech2"></button>
+    </zan-flex>
+    <zan-flex class="align-center" data-gap="6">
+      <img id="techIconBallistic" class="cf-techicon" alt="弹道校准"/>
+      <button id="tech3" class="cf-techrow grow" data-on-click="hudTech3"></button>
+    </zan-flex>
+    <zan-flex class="align-center" data-gap="6">
+      <img id="techIconLogistics" class="cf-techicon" alt="物流增压"/>
+      <button id="tech4" class="cf-techrow grow" data-on-click="hudTech4"></button>
+    </zan-flex>
+    <zan-flex class="align-center" data-gap="6">
+      <img id="techIconCore" class="cf-techicon" alt="炉心扩张"/>
+      <button id="tech5" class="cf-techrow grow" data-on-click="hudTech5"></button>
+    </zan-flex>
+    <zan-flex class="align-center" data-gap="6">
+      <img id="techIconTwin" class="cf-techicon" alt="双管齐射"/>
+      <button id="tech6" class="cf-techrow grow" data-on-click="hudTech6"></button>
+    </zan-flex>
+    <zan-flex class="align-center" data-gap="6">
+      <img id="techIconSniper" class="cf-techicon" alt="远程压制"/>
+      <button id="tech7" class="cf-techrow grow" data-on-click="hudTech7"></button>
+    </zan-flex>
+    <zan-flex class="align-center" data-gap="6">
+      <img id="techIconSiege" class="cf-techicon" alt="攻城火力"/>
+      <button id="tech8" class="cf-techrow grow" data-on-click="hudTech8"></button>
+    </zan-flex>
+    <zan-flex class="align-center" data-gap="6">
+      <img id="techIconRepair" class="cf-techicon" alt="纳米修复"/>
+      <button id="tech9" class="cf-techrow grow" data-on-click="hudTech9"></button>
+    </zan-flex>
+    <zan-flex class="align-center" data-gap="6">
+      <img id="techIconSwarm" class="cf-techicon" alt="铁蜂编队"/>
+      <button id="tech10" class="cf-techrow grow" data-on-click="hudTech10"></button>
+    </zan-flex>
+    <zan-flex class="align-center" data-gap="6">
+      <img id="techIconPrism" class="cf-techicon" alt="棱镜聚焦"/>
+      <button id="tech11" class="cf-techrow grow" data-on-click="hudTech11"></button>
+    </zan-flex>
+    <zan-flex class="align-center" data-gap="6">
+      <img id="techIconNanoproj" class="cf-techicon" alt="纳米投影"/>
+      <button id="tech12" class="cf-techrow grow" data-on-click="hudTech12"></button>
+    </zan-flex>
+    <zan-flex class="align-center" data-gap="6">
+      <img id="techIconOverdrive" class="cf-techicon" alt="过护力场"/>
+      <button id="tech13" class="cf-techrow grow" data-on-click="hudTech13"></button>
+    </zan-flex>
+    <zan-flex class="align-center" data-gap="6">
+      <img id="techIconShield" class="cf-techicon" alt="局能力场"/>
+      <button id="tech14" class="cf-techrow grow" data-on-click="hudTech14"></button>
+    </zan-flex>
     <label class="cf-hint" data-wrap="true">前置完成后，用核心库存换取扩张。</label>
   </zan-flex>
 
-  <!-- 建造栏（底部中央） -->
-  <zan-flex id="Palette" class="cf-palette align-center" data-dock="2" data-fh="74" data-gap="6">
+  <!-- 状态栏（最底）
+       引擎的 bottom 停靠是"按插入顺序自下而上堆叠"：先写进来的贴最底。
+       所以状态栏必须排在建造栏前面，否则贴到窗口底的是建造栏，
+       状态栏反被顶到它上面——与设计稿的"状态栏（最底）"正好相反。
+       两块合计仍是 102 设计像素（建造栏74 + 状态栏28），底栏总高不变。 -->
+  <zan-flex id="Statusbar" class="cf-status align-center" data-dock="2" data-fh="28" data-gap="8">
+    <label id="statusText" class="cf-statustext" data-dock="5"></label>
+    <button id="btnRotate" class="cf-mini" data-on-click="hudRotate">旋转 R</button>
+    <button id="btnDemolish" class="cf-mini" data-on-click="hudDemolish">拆除 X</button>
+    <button id="btnCancel" class="cf-mini" data-on-click="hudCancel">取消 Q</button>
+  </zan-flex>
+
+  <!-- 建造栏（底部中央）
+       justify-center：设计稿里建造栏是居中的（21 个按钮 21×54+20×4=1214
+       设计像素，满解锁时铺满 1280 宽）。早期只解锁 7 个按钮，左对齐会
+       在右边留出上千像素的空档；居中后两边对称。 -->
+  <zan-flex id="Palette" class="cf-palette align-center justify-center" data-dock="2" data-fh="74" data-gap="6">
     <button id="pb2" class="cf-build cf-g-mine" data-on-click="hudB2">钻头</button>
     <button id="pb3" class="cf-build cf-g-mine" data-on-click="hudB3">传送带</button>
     <button id="pb4" class="cf-build cf-g-mine" data-on-click="hudB4">分流器</button>
@@ -118,13 +188,6 @@
     <button id="pb14" class="cf-build cf-g-process" data-on-click="hudB14">油井</button>
   </zan-flex>
 
-  <!-- 状态栏（最底） -->
-  <zan-flex id="Statusbar" class="cf-status align-center" data-dock="2" data-fh="28" data-gap="8">
-    <label id="statusText" class="cf-statustext" data-dock="5"></label>
-    <button id="btnRotate" class="cf-mini" data-on-click="hudRotate">旋转 R</button>
-    <button id="btnDemolish" class="cf-mini" data-on-click="hudDemolish">拆除 X</button>
-    <button id="btnCancel" class="cf-mini" data-on-click="hudCancel">取消 Q</button>
-  </zan-flex>
 
   <!-- 结算幕（败北/胜利，Overlay 内铺满 = 最上层） -->
   <div id="EndVeil" class="cf-veil" data-dock="5">

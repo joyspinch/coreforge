@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using Gui;
-using Game.Foundation;
 using Coreforge;
 using Game.Factory;
 
@@ -42,11 +41,37 @@ public class CoreforgeProgram {
         root.SetProp("style", "display:flex;flex-direction:column");
         CoreforgeHud.Overlay.SetProp("style", "flex-grow:1");
         window.Add(root);
+        // 登记保留模式的根：UiDriver 的 `dump tree` 只遍历 SetRoot
+        // 登记过的控件，而标准宿主 Form.Run 会登记——本作是自建循环，
+        // 不登记就永远拿不到控件树，实测坐标通道（排版对账）就断了。
+        // 这一句在无驱动时也只是给一个静态字段赋值，无副作用。
+        UiDriver.SetRoot(root);
+        // 生成器的装载钩子。设计稿的 CreateWindow() 会调它，但本作是自建宿主
+        // （自己管 Form / App / 皮肤 / 帧循环），不走那条路——不补这一句，
+        // 钩子里的一切都不执行（科技图标就是在这挂的：src 恒空 → Image
+        // 画 alt 文本占位）。顺序与生成器一致：建树 → 入树 → OnLoad → 接线。
+        CoreforgeHud.OnLoad(window);
         CoreforgeHud.__WireForm(window);
         ForgeInterface game = new ForgeInterface(app, CoreforgeProgram.SavePath());
         game.Attach(window);
+        // 音频设备与 27 个 clip 只开一次。设备开不了就整层静默降级
+        //（音效是加分项，绝不能变成"能不能跑"的开关）。
+        ForgeAudio.Ensure();
+        // 音频自检：独立通道，不进 GUI 循环。逐个播 27 个音效并打印
+        // 设备名与起播数，用来区分"设备开不了"和"clip 解不出来"。
+        string audioSelfTest = Environment.GetEnvironmentVariable("COREFORGE_AUDIO_SELFTEST");
+        if (audioSelfTest == "1") {
+            int started = ForgeAudio.PlayAllForSelfTest();
+            Console.WriteLine("COREFORGE_AUDIO_SELFTEST opened=" + Convert.ToString(ForgeAudio.Opened())
+              + " started=" + Convert.ToString(started) + "/" + Convert.ToString(ForgeAudio.COUNT)
+              + " driver=" + ForgeAudio.Driver()
+              + " played=" + Convert.ToString(ForgeAudio.Played())
+              + " dropped=" + Convert.ToString(ForgeAudio.Dropped()));
+            ForgeAudio.Close();
+            return;
+        }
         app.Show();
-        FixedStepClock clock = new FixedStepClock(20, 12);
+        ForgeClock clock = new ForgeClock(20, 12);
         int previous = Window.GetTickMs();
         int frames = 0;
         string capture = Environment.GetEnvironmentVariable("COREFORGE_CAPTURE");
@@ -71,7 +96,8 @@ public class CoreforgeProgram {
             game.TickCamera(elapsed);
             clock.SetPaused(game.paused); clock.SetTimeScale((double)game.speed);
             clock.Advance(elapsed);
-            while (clock.HasStep()) { clock.ConsumeStep(); game.sim.Step(); }
+            // 音效判定必须在 step 粒度上采样：帧粒度会漏掉一帧内的多次开火。
+            while (clock.HasStep()) { clock.ConsumeStep(); game.sim.Step(); game.TickAudio(); }
             game.TickUi();
             if (autotest == "1") { CoreforgeAutoTest.Run(game, frames); }
             app.BeginFrame();
@@ -94,6 +120,10 @@ public class CoreforgeProgram {
                 Console.WriteLine("COREFORGE_CAM zoom=" + Convert.ToString(game.camera.zoom) + " x=" + Convert.ToString(game.camera.x) + " y=" + Convert.ToString(game.camera.y)
                   + " map=" + Convert.ToString(game.sim.world.width) + "x" + Convert.ToString(game.sim.world.height)
                   + " client=" + Convert.ToString(app.ClientWidth()) + "x" + Convert.ToString(app.ClientHeight()));
+                Console.WriteLine("COREFORGE_AUDIO opened=" + Convert.ToString(ForgeAudio.Opened())
+                  + " played=" + Convert.ToString(ForgeAudio.Played())
+                  + " dropped=" + Convert.ToString(ForgeAudio.Dropped())
+                  + " driver=" + ForgeAudio.Driver());
                 CoreforgeAutoTest.DumpEvents();
                 running = false;
             }
@@ -101,6 +131,12 @@ public class CoreforgeProgram {
                 Console.WriteLine(CoreforgeAutoTest.passed
                   ? "COREFORGE_AUTOTEST_OK frames=" + Convert.ToString(frames)
                   : "COREFORGE_AUTOTEST_FAIL");
+                // 端到端音效证据：自测真的建了矿机/传送带，映射层应把
+                // 建造/生产事件转成实际发声的音效（played > 0）。
+                Console.WriteLine("COREFORGE_AUDIO opened=" + Convert.ToString(ForgeAudio.Opened())
+                  + " played=" + Convert.ToString(ForgeAudio.Played())
+                  + " dropped=" + Convert.ToString(ForgeAudio.Dropped())
+                  + " driver=" + ForgeAudio.Driver());
                 running = false;
             }
             app.RequestRedraw();
@@ -115,5 +151,6 @@ public class CoreforgeProgram {
                 }
             }
         }
+        ForgeAudio.Close();
     }
 }

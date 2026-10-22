@@ -1,6 +1,7 @@
 using System;
 using Gui;
 using Game.Factory;
+using Coreforge;
 
 // 本文件负责把生成的静态控件树接进游戏：Attach 注册表单事件，RefreshHud 每帧
 // 把模拟状态回写到控件（wuwei 式 .Text/.visible 习惯），HudConsumes
@@ -17,5 +18,40 @@ partial class CoreforgeHud {
         Tech.visible = false;
         Detail.visible = false;
         Objectives.visible = false;
+        ApplyTechIcons();
+    }
+
+    // 科技图标：设计稿里的 <img> 只写 alt（可访问性文案），源文件路径
+    // 必须在运行时注入——CSS 的 background-image 在本引擎不可用，Image
+    // 控件只认 src；而路径随安装位置变，没法写死在设计稿里。
+    //
+    // 15 枚 = ForgeCatalog.TechDef 的 techs[0..14]。techs[0]（基础工程）
+    // 挂在科技面板标题行旁，techs[1..14] 挂在各科技行左侧。
+    static void ApplyTechIcons() {
+        SetTechIcon(techIconBase, "base");
+        SetTechIcon(techIconThermo, "thermo");
+        SetTechIcon(techIconLattice, "lattice");
+        SetTechIcon(techIconBallistic, "ballistic");
+        SetTechIcon(techIconLogistics, "logistics");
+        SetTechIcon(techIconCore, "core");
+        SetTechIcon(techIconTwin, "twin");
+        SetTechIcon(techIconSniper, "sniper");
+        SetTechIcon(techIconSiege, "siege");
+        SetTechIcon(techIconRepair, "repair");
+        SetTechIcon(techIconSwarm, "swarm");
+        SetTechIcon(techIconPrism, "prism");
+        SetTechIcon(techIconNanoproj, "nanoproj");
+        SetTechIcon(techIconOverdrive, "overdrive");
+        SetTechIcon(techIconShield, "shield");
+    }
+
+    // 缺图就整枚隐藏：Image 加载失败且 alt 为空时会画 "..." 占位
+    // （Image.DrawPlaceholder），科技列表里挂一个空框很难看；藏掉之后
+    // 这一行退化成"只有文字的科技行"，功能不受影响。
+    static void SetTechIcon(Gui.Widget.Image img, string slug) {
+        if (img == null) { return; }
+        string path = ForgeArt.AssetPath("sprites/coreforge/tech/" + slug + "_icon.png");
+        if (path == "") { img.visible = false; return; }
+        img.SetProp("src", path);
     }
 }

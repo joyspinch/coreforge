@@ -16,6 +16,7 @@ partial class ForgeInterface {
     ForgeSimulation sim;
     ForgeCamera camera;
     ForgeRenderer renderer;
+    ForgeSfx sfx;
     BlockKind selected;
     int direction;
     int inspectCell;
@@ -47,6 +48,10 @@ partial class ForgeInterface {
     int clientW;
     int clientH;
     int chromeTop;
+    // 世界层自由区：HUD chrome（顶栏+工具栏 / 建造栏+状态栏）之间的那一条。
+    // 世界只画在这条里——画到 chrome 底下会从半透明顶栏里透出地图内容。
+    int worldTop;
+    int worldBottom;
     int miniX;
     int miniY;
     int miniW;
@@ -71,13 +76,20 @@ partial class ForgeInterface {
     ForgeInterface(App host, string path) {
         app = host; savePath = path; title = "炉心边境 · COREFORGE";
         sim = new ForgeSimulation(1709); camera = new ForgeCamera(); camera.Focus(sim.world);
-        renderer = new ForgeRenderer(); selected = BlockKind.Empty; speed = 1;
+        renderer = new ForgeRenderer(); sfx = new ForgeSfx(); sfx.Reset(sim.world);
+        selected = BlockKind.Empty; speed = 1;
         inspectCell = sim.world.coreCell; hoverCell = -1; lastCell = -1; downCell = -1;
         keys = new bool[256];
         bpDX = new int[256]; bpDY = new int[256]; bpKind = new int[256]; bpDir = new int[256];
         preview = new int[5];
         status = "从铜矿到炮塔：沿箭头连接输送线，守住炉心。";
         mouseX = -1; mouseY = -1;
+        // 画布 HUD 的缩放倍率必须与控件树同源（控件树按 DPI 倍率放大）。
+        // 构造时先落一次，免得首帧输入早于 Render 时 S() 退化成 1。
+        uiScale = app.Scale(100) / 100.0;
+        // 科技面板常开：审阅/截图用。科技图标只在面板里可见，默认收起
+        // 就看不到它们，等于没法验收。正常运行不受影响。
+        if (Environment.GetEnvironmentVariable("COREFORGE_TECH_PANEL") == "1") { showTech = true; }
     }
 
     // ---- 单一缩放 helper：小地图等画布 HUD 的一切尺寸过它（纪律） ----
@@ -91,44 +103,45 @@ partial class ForgeInterface {
     // 把设计稿声明的 data-on-click 处理器接到模拟动作上。
     void Attach(Form form) {
         hud = form;
-        form.On("hudPause", () => TogglePause());
-        form.On("hudSpeed", () => { speed = speed == 1 ? 2 : speed == 2 ? 4 : 1; newRunArmed = false; });
-        form.On("hudLaunch", () => { if (!sim.world.waveActive && !sim.world.defeated && !sim.world.victory) { sim.combat.StartWave(); } });
-        form.On("hudPower", () => powerOverlay = !powerOverlay);
-        form.On("hudTech", () => showTech = !showTech);
-        form.On("hudSave", () => Save());
-        form.On("hudLoad", () => Load());
-        form.On("hudHome", () => camera.Focus(sim.world));
-        form.On("hudNew", () => NewRun());
-        form.On("hudRecipe", () => CycleRecipe());
-        form.On("hudTarget", () => CycleTarget());
+        form.On("hudPause", () => { UiClick(); TogglePause(); });
+        form.On("hudSpeed", () => { UiClick(); speed = speed == 1 ? 2 : speed == 2 ? 4 : 1; newRunArmed = false; });
+        form.On("hudLaunch", () => { UiClick(); if (!sim.world.waveActive && !sim.world.defeated && !sim.world.victory) { sim.combat.StartWave(); } });
+        form.On("hudPower", () => { UiClick(); powerOverlay = !powerOverlay; });
+        form.On("hudTech", () => { UiClick(); showTech = !showTech; });
+        form.On("hudSave", () => { UiClick(); Save(); });
+        form.On("hudLoad", () => { UiClick(); Load(); });
+        form.On("hudHome", () => { UiClick(); camera.Focus(sim.world); });
+        form.On("hudNew", () => { UiClick(); NewRun(); });
+        form.On("hudRecipe", () => { UiClick(); CycleRecipe(); });
+        form.On("hudTarget", () => { UiClick(); CycleTarget(); });
+        // 这两个按钮有专属音效（投入原料 / 转向），不叠 UI 点击音。
         form.On("hudFeed", () => Feed());
         form.On("hudRotate", () => Rotate());
-        form.On("hudDemolish", () => { erase = !erase; selected = BlockKind.Empty; });
-        form.On("hudCancel", () => Cancel());
-        form.On("hudAgain", () => RestartRun());
-        form.On("hudLoad2", () => Load());
-        form.On("hudTech1", () => Research(1));
-        form.On("hudTech2", () => Research(2));
-        form.On("hudTech3", () => Research(3));
-        form.On("hudTech4", () => Research(4));
-        form.On("hudTech5", () => Research(5));
-        form.On("hudTech6", () => Research(6));
-        form.On("hudTech7", () => Research(7));
-        form.On("hudTech8", () => Research(8));
-        form.On("hudTech9", () => Research(9));
-        form.On("hudTech10", () => Research(10));
-        form.On("hudTech11", () => Research(11));
-        form.On("hudTech12", () => Research(12));
-        form.On("hudTech13", () => Research(13));
-        form.On("hudTech14", () => Research(14));
-        form.On("hudDrones", () => CycleDrones());
-        form.On("hudBlueprint", () => ToggleBlueprint());
-        form.On("hudEndless", () => ContinueEndless());
-        form.On("hudDiff0", () => { pendingDifficulty = 0; });
-        form.On("hudDiff1", () => { pendingDifficulty = 1; });
-        form.On("hudDiff2", () => { pendingDifficulty = 2; });
-        form.On("hudDepart", () => DepartBriefing());
+        form.On("hudDemolish", () => { UiClick(); erase = !erase; selected = BlockKind.Empty; });
+        form.On("hudCancel", () => { UiClick(); Cancel(); });
+        form.On("hudAgain", () => { UiClick(); RestartRun(); });
+        form.On("hudLoad2", () => { UiClick(); Load(); });
+        form.On("hudTech1", () => { UiClick(); Research(1); });
+        form.On("hudTech2", () => { UiClick(); Research(2); });
+        form.On("hudTech3", () => { UiClick(); Research(3); });
+        form.On("hudTech4", () => { UiClick(); Research(4); });
+        form.On("hudTech5", () => { UiClick(); Research(5); });
+        form.On("hudTech6", () => { UiClick(); Research(6); });
+        form.On("hudTech7", () => { UiClick(); Research(7); });
+        form.On("hudTech8", () => { UiClick(); Research(8); });
+        form.On("hudTech9", () => { UiClick(); Research(9); });
+        form.On("hudTech10", () => { UiClick(); Research(10); });
+        form.On("hudTech11", () => { UiClick(); Research(11); });
+        form.On("hudTech12", () => { UiClick(); Research(12); });
+        form.On("hudTech13", () => { UiClick(); Research(13); });
+        form.On("hudTech14", () => { UiClick(); Research(14); });
+        form.On("hudDrones", () => { UiClick(); CycleDrones(); });
+        form.On("hudBlueprint", () => { UiClick(); ToggleBlueprint(); });
+        form.On("hudEndless", () => { UiClick(); ContinueEndless(); });
+        form.On("hudDiff0", () => { UiClick(); pendingDifficulty = 0; });
+        form.On("hudDiff1", () => { UiClick(); pendingDifficulty = 1; });
+        form.On("hudDiff2", () => { UiClick(); pendingDifficulty = 2; });
+        form.On("hudDepart", () => { UiClick(); DepartBriefing(); });
         // 蓝图数组是引用：让渲染器直接读同一份存储，避免每帧拷贝。
         renderer.bpDX = bpDX; renderer.bpDY = bpDY; renderer.bpKind = bpKind; renderer.bpDir = bpDir;
         form.On("hudB2", () => SelectBlock(2));
@@ -197,6 +210,7 @@ partial class ForgeInterface {
         }
         if (bpCount == 0) { Message("框内没有建筑：按住左键框住要复制的部分。"); return; }
         bpState = 2;
+        ForgeAudio.PlayDefault(ForgeAudio.BUILD_BLUEPRINT);
         Message("蓝图已捕获 " + N(bpCount) + " 座建筑：左键粘贴（可多处粘贴），R 旋转，Q 收起。");
     }
 
@@ -214,6 +228,7 @@ partial class ForgeInterface {
             w.Build(w.Index(x, y), kind, bpDir[i]);
             placed = placed + 1;
         }
+        if (placed > 0) { ForgeAudio.PlayDefault(ForgeAudio.BUILD_BLUEPRINT); }
         Message("蓝图粘贴 " + N(placed) + " 座" + (skipped > 0 ? "，跳过 " + N(skipped) + " 处（占位或资源不足）。" : "。"));
     }
 
@@ -250,6 +265,8 @@ partial class ForgeInterface {
         erase = false;
         showTech = false;
         newRunArmed = false;
+        // 建造栏按钮：专属音（不叠 UI 点击音）。
+        ForgeAudio.PlayDefault(ForgeAudio.BUILD_SELECT);
     }
 
     void TogglePause() {
@@ -266,6 +283,7 @@ partial class ForgeInterface {
     // 重置一局并在简报幕上待命：世界已就绪但暂停，出发按钮落难度开战。
     void ArmBriefing(int seed) {
         sim = new ForgeSimulation(seed);
+        sfx.Reset(sim.world);
         camera.Focus(sim.world);
         inspectCell = sim.world.coreCell;
         selected = BlockKind.Empty;
@@ -300,9 +318,18 @@ partial class ForgeInterface {
         Canvas c = app.canvas;
         clientW = app.ClientWidth(); clientH = app.ClientHeight();
         chromeTop = app.ContentTop();
-        uiScale = clientW / 1280.0;
-        // 世界全屏铺底（HUD 控件树之下）——游戏画面本体。
-        camera.SetViewport(0, chromeTop, clientW, clientH - chromeTop);
+        // 缩放口径与控件树同源：控件树按 DPI 倍率放大，画布 HUD 用同一个。
+        // 旧写法 clientW/1280 是单轴推算，窗口一变宽就跟控件树分家。
+        uiScale = app.Scale(100) / 100.0;
+        UpdateWorldBand();
+        // 世界只画在 HUD chrome 之间的自由区。旧视口从 chromeTop 铺到窗口底，
+        // 地图整幅压在半透明顶栏/工具栏/底栏底下——顶栏那个"不明圆标"就是
+        // 地图顶行透出来的。
+        camera.SetViewport(0, worldTop, clientW, worldBottom - worldTop);
+        // chrome 区补世界底色：视口裁剪只挡世界绘制，底色得自己铺，
+        // 否则半透明 chrome 底下会露出上一帧的残影。
+        if (worldTop > chromeTop) { c.FillRect(0, chromeTop, clientW, worldTop - chromeTop, 0xFF202D30); }
+        if (worldBottom < clientH) { c.FillRect(0, worldBottom, clientW, clientH - worldBottom, 0xFF202D30); }
         ApplyShake();
         // 蓝图会话态喂给渲染器画框选矩形与幽灵预览（数组已在 Attach 共享）。
         renderer.bpState = bpState; renderer.bpCount = bpCount;
@@ -312,6 +339,23 @@ partial class ForgeInterface {
         Minimap(c);
         WavePreview(c);
         RefreshHud();
+    }
+
+    // 世界层自由区：上界 = 悬浮层顶（顶栏+工具栏之下），下界 = 可见底栏顶。
+    // 控件矩形来自上一帧的 Arrange（帧序：Render 排在 Arrange 之前），
+    // 允许 1 帧延迟；首帧用设计值兜底（80 = 顶栏46+工具栏34，
+    // 102 = 建造栏74+状态栏28）。
+    void UpdateWorldBand() {
+        int top = chromeTop + S(80);
+        int bottom = clientH - S(102);
+        int overlayTop = CoreforgeHud.Overlay.by;
+        if (overlayTop > chromeTop) { top = overlayTop; }
+        int paletteTop = CoreforgeHud.Palette.visible ? CoreforgeHud.Palette.by : clientH;
+        int statusTop = CoreforgeHud.Statusbar.visible ? CoreforgeHud.Statusbar.by : clientH;
+        int bandBottom = ForgeGrid.Min(paletteTop, statusTop);
+        if (bandBottom > top + 60) { bottom = bandBottom; }
+        worldTop = top;
+        worldBottom = bottom;
     }
 
     // 屏震衰减：确定性位移（取 world.tick 哈希），无随机数。
@@ -330,8 +374,9 @@ partial class ForgeInterface {
         miniW = w.width * tile;
         miniH = w.height * tile;
         miniX = clientW - miniW - S(12);
-        // 底部 HUD 共 102 设计像素（建造栏 74 + 状态栏 28），小地图必须收在其上。
-        miniY = clientH - S(102) - miniH - S(12);
+        // 小地图收在世界自由区底缘之上（旧写法写死底栏 102 设计像素，
+        // 底栏高度或顺序一变就错位）。
+        miniY = worldBottom - miniH - S(12);
         c.FillRect(miniX - S(3), miniY - S(3), miniW + S(6), miniH + S(6), 0xB4140F0A);
         c.DrawRect(miniX - S(3), miniY - S(3), miniW + S(6), miniH + S(6), 0xFF4D3D24, 1);
         for (int cell = 0; cell < w.width * w.height; cell = cell + 1) {
@@ -373,8 +418,8 @@ partial class ForgeInterface {
         int corePy = miniY + (w.coreCell / w.width) * tile;
         c.FillRect(corePx, corePy, tile, tile, 0xFFFFD98F);
         // 视口框。
-        int vw = (int)(clientW / (ForgeGrid.TileSize() * camera.zoom)) * tile;
-        int vh = (int)((clientH - chromeTop) / (ForgeGrid.TileSize() * camera.zoom)) * tile;
+        int vw = (int)(camera.viewportW / (ForgeGrid.TileSize() * camera.zoom)) * tile;
+        int vh = (int)(camera.viewportH / (ForgeGrid.TileSize() * camera.zoom)) * tile;
         int vx = miniX + (int)(camera.x * tile) - vw / 2;
         int vy = miniY + (int)(camera.y * tile) - vh / 2;
         c.DrawRect(vx, vy, vw, vh, 0x90F3EAD9, 1);
@@ -394,8 +439,10 @@ partial class ForgeInterface {
             int cx = camera.ScreenX((cell % w.width) * 1000 + 500);
             int cy = camera.ScreenY((cell / w.width) * 1000 + 500);
             // 出生口在视口内就不必预警；在视口外则把箭头钳到视口边缘。
-            int mx = ForgeGrid.Clamp(cx, chromeTop + S(26), clientW - S(26));
-            int my = ForgeGrid.Clamp(cy, chromeTop + S(56), clientH - S(112));
+            // 钳到世界自由区之内。旧代码把 Y 值当成了 X 的下界，
+            // 西侧箭头被硬生生推到右边 39px 以外。
+            int mx = ForgeGrid.Clamp(cx, S(26), clientW - S(26));
+            int my = ForgeGrid.Clamp(cy, worldTop + S(26), worldBottom - S(26));
             if (cx == mx && cy == my) { continue; }
             int a = S(11);
             if (cx < mx) {  // 西通道：箭头朝左
@@ -414,9 +461,10 @@ partial class ForgeInterface {
         }
     }
 
-    // ---- 波次预告条：准备期挂在 HUD 两行之下（顶栏46+工具栏34）， ----
-    // 兵种构成 + 数量 + 倒计时；不能画在 chromeTop+8 以内，会被控件树盖住。
-    // 与出兵共用 ForgeCombat.Preview 公式，预告即真相；难度标签随档显示。
+    // ---- 波次预告条：占设计稿 Banner 槽位（Overlay + fx360/fy62/fw560/fh46）----
+    // 开波瞬间 HTML 横幅接管同一块位置——不再两套坐标、也不再跳位。
+    // 兵种构成 + 数量 + 倒计时；与出兵共用 ForgeCombat.Preview 公式，
+    // 预告即真相；难度标签随档显示。
     void WavePreview(Canvas c) {
         ForgeWorld w = sim.world;
         if (briefing || w.defeated || w.victory || w.waveActive) { return; }
@@ -433,29 +481,42 @@ partial class ForgeInterface {
         int headW = S(96) + (w.difficulty == 1 ? 0 : S(52));
         int countdownW = S(48);
         int width = pad + headW + used * chip + (boss ? S(56) : 0) + countdownW + pad;
-        int height = S(38);
-        int x = clientW / 2 - width / 2;
-        int y = chromeTop + S(92);
-        c.FillRect(x, y, width, height, 0xE01A130A);
-        c.DrawRect(x, y, width, height, 0xFF4D3D24, 1);
-        int cy = y + height / 2 + S(5);
-        string tag = w.difficulty == 0 ? " · 平静" : w.difficulty == 2 ? " · 严酷" : "";
-        c.DrawText(x + pad, cy, "第 " + N(next) + " 波来袭" + tag, 0xFFF2A558, S(14));
-        int cx = x + pad + headW;
+        // 槽位与 HTML 横幅同格：预告条和开波横幅画在同一块矩形上。
+        int barX = CoreforgeHud.Overlay.bx + S(360);
+        int barY = CoreforgeHud.Overlay.by + S(62);
+        int barW = S(560);
+        int barH = S(46);
+        c.FillRect(barX, barY, barW, barH, 0xE01A130A);
+        c.DrawRect(barX, barY, barW, barH, 0xFF4D3D24, 1);
+        // 内容在槽位内水平居中，倒计时贴内容右缘。
+        int x = barX + (barW - width) / 2;
+        int y = barY;
+        int height = barH;
+        // 垂直基准：Canvas.DrawText 的 y 是字形墨迹盒顶边，栅格器按基线
+        // 摆放字形、墨迹还会整体下移一个 leading；手算 height/2 会把字
+        // 压在条子下沿（字掉出条外）。这里统一走引擎的光学居中 helper，
+        // 让文字墨迹与兵种色点圆心共线于 midY。
         int midY = y + height / 2;
+        int fsHead = S(14);
+        int fsChip = S(13);
+        int cyHead = Canvas.CenterTextYAt(midY, fsHead);
+        int cyChip = Canvas.CenterTextYAt(midY, fsChip);
+        string tag = w.difficulty == 0 ? " · 平静" : w.difficulty == 2 ? " · 严酷" : "";
+        c.DrawText(x + pad, cyHead, "第 " + N(next) + " 波来袭" + tag, 0xFFF2A558, fsHead);
+        int cx = x + pad + headW;
         for (int k = 0; k < 5; k = k + 1) {
             if (preview[k] <= 0) { continue; }
             c.FillCircle(cx + S(5), midY, S(4), KindColor(k));
             c.DrawCircle(cx + S(5), midY, S(4), 0xFF14100B, 1);
-            c.DrawText(cx + S(13), cy, "×" + N(preview[k]), 0xFFF3EAD9, S(13));
+            c.DrawText(cx + S(13), cyChip, "×" + N(preview[k]), 0xFFF3EAD9, fsChip);
             cx = cx + chip;
         }
         if (boss) {
-            c.DrawText(cx, cy, "⚠ 首领压阵", 0xFFFF9D6C, S(13));
+            c.DrawText(cx, cyChip, "⚠ 首领压阵", 0xFFFF9D6C, fsChip);
             cx = cx + S(56);
         }
         string countdown = N((w.nextWaveTicks + 49) / 50) + "s";
-        c.DrawText(x + width - pad - Canvas.MeasureText(countdown, S(14)), cy, countdown, 0xFFCDBB97, S(14));
+        c.DrawText(x + width - pad - Canvas.MeasureText(countdown, fsHead), cyHead, countdown, 0xFFCDBB97, fsHead);
     }
 
     int KindColor(int kind) {
@@ -582,7 +643,7 @@ partial class ForgeInterface {
             "运行 6 座钻头（" + N(ForgeGrid.Min(drills, 6)) + "/6）",
             "建造 1 座熔炉" + (done[2] ? "" : "，把矿石炼成建材"),
             "4 座炮塔 + 1 座供电（" + N(ForgeGrid.Min(turrets, 4)) + "/4）",
-            "打退第 3 波进攻" + (done[4] ? "" : "，迎敌按钮提前开战"),
+            "打退第 3 波进攻" + (done[4] ? "" : "\n迎敌按钮提前开战"),
         };
         bool allDone = true;
         for (int i = 0; i < 5; i = i + 1) {
@@ -599,9 +660,19 @@ partial class ForgeInterface {
         for (int i = 1; i <= 14; i = i + 1) {
             TechDef t = w.catalog.techs[i];
             bool finished = w.researched[i];
-            bool ready = !finished && w.researched[t.parent] && w.resources.Has(t.cost);
-            techRow[i - 1].Text = (finished ? "✔ 已完成 · " : ready ? "▶ 研究 · " : "🔒 锁定 · ") + t.name + "　" + Cost(t.cost);
-            techRow[i - 1].Disabled = !ready;
+            bool unlocked = w.researched[t.parent];
+            bool affordable = w.resources.Has(t.cost);
+            // 四态：已完成 / 可研究 / 资源不足 / 前置未完成。
+            // 旧代码把"资源不足"也写成"🔒 锁定"，两种状态混作一谈，
+            // 玩家分不清是差前置还是差资源。行内放不下状态词，改为
+            // "字形 + 文字色"两重区分（颜色见 skin.css 的 cf-tech-*）。
+            string mark = finished ? "✔" : !unlocked ? "🔒" : affordable ? "▶" : "⚠";
+            techRow[i - 1].Text = mark + " " + t.name + " " + TechCost(t.cost);
+            // 已完成的行也置灰：再点一次 Research 会二次扣料。
+            techRow[i - 1].Disabled = finished || !unlocked || !affordable;
+            techRow[i - 1].SetClassIn("cf-tech-done cf-tech-ready cf-tech-poor cf-tech-lock",
+              finished ? "cf-tech-done" : !unlocked ? "cf-tech-lock"
+                : affordable ? "cf-tech-ready" : "cf-tech-poor");
         }
         // 选中/点检详情。
         string body = DetailBody();
@@ -732,6 +803,20 @@ partial class ForgeInterface {
         return text;
     }
 
+    // 科技行专用成本串：项名紧跟数字、项间单空格。
+    // Cost() 的"名 数字  名 数字"留白在 330 宽的科技面板里排不下
+    // （最坏一行自然宽 487px，而可用只有 373~385px），这里换紧凑写法。
+    string TechCost(Stock stock) {
+        string text = "";
+        for (int i = 0; i < 6; i = i + 1) {
+            if (stock.Get(i) > 0) {
+                if (text != "") { text = text + " "; }
+                text = text + sim.world.catalog.items[i] + N(stock.Get(i));
+            }
+        }
+        return text;
+    }
+
     string Facing() {
         if (direction == 0) { return "向东 →"; }
         if (direction == 1) { return "向南 ↓"; }
@@ -785,6 +870,18 @@ partial class ForgeInterface {
 
     // ================= 动作 =================
 
+    // HUD 按钮的通用点击音。没有专属音效的按钮用它。
+    void UiClick() {
+        ForgeAudio.PlayDefault(ForgeAudio.UI_CLICK);
+    }
+
+    // 一个模拟步推进一次音效判定。必须在 step 粒度上采样（帧粒度会漏掉
+    // 一帧内的多次开火），所以由 main.zan 的 step 循环调用。
+    void TickAudio() {
+        sfx.Pump(sim.world);
+        ForgeAudio.Tick();
+    }
+
     void Message(string text) {
         status = text;
         messageUntil = sim.world.tick + 250;
@@ -799,6 +896,7 @@ partial class ForgeInterface {
     }
 
     void Rotate() {
+        ForgeAudio.PlayDefault(ForgeAudio.BUILD_ROTATE);
         if (bpState == 2) { RotateBlueprint(); return; }
         direction = (direction + 1) % 4;
         if (selected == BlockKind.Empty && inspectCell >= 0) {
@@ -810,7 +908,7 @@ partial class ForgeInterface {
     void Research(int id) {
         if (id < 1 || id > 14) { return; }
         if (sim.world.Research(id)) { Message("研究完成：" + sim.world.catalog.techs[id].name); }
-        else { Message("研究条件未满足，请检查前置科技与核心库存。"); }
+        else { ForgeAudio.PlayDefault(ForgeAudio.UI_ERROR); Message("研究条件未满足，请检查前置科技与核心库存。"); }
     }
 
     void CycleRecipe() {
@@ -851,17 +949,22 @@ partial class ForgeInterface {
                 if (ok) { for (int i = 0; i < 6; i = i + 1) { b.stock.Add(i, inputs.Get(i)); } }
             }
         }
+        if (ok) { ForgeAudio.PlayDefault(ForgeAudio.BUILD_FEED); }
+        else { ForgeAudio.PlayDefault(ForgeAudio.UI_ERROR); }
         Message(ok ? "已投入原料。持续生产请连接输送带与管道。" : "资源不足或建筑输入仓已满。");
     }
 
     void Save() {
-        Message(ForgeSave.Save(sim.world, savePath) ? "已保存远征。" : "保存失败，请检查存档目录写入权限。");
+        bool ok = ForgeSave.Save(sim.world, savePath);
+        if (!ok) { ForgeAudio.PlayDefault(ForgeAudio.UI_ERROR); }
+        Message(ok ? "已保存远征。" : "保存失败，请检查存档目录写入权限。");
     }
 
     void Load() {
         ForgeWorld? loaded = ForgeSave.Load(savePath);
-        if (loaded == null) { Message("未找到有效存档，当前远征继续。"); return; }
+        if (loaded == null) { ForgeAudio.PlayDefault(ForgeAudio.UI_ERROR); Message("未找到有效存档，当前远征继续。"); return; }
         sim = new ForgeSimulation(loaded);
+        sfx.Reset(sim.world);
         inspectCell = loaded.coreCell;
         camera.Focus(loaded);
         leftDown = false;
@@ -889,7 +992,8 @@ partial class ForgeInterface {
     // ================= 世界输入 =================
 
     bool OverWorld(int x, int y) {
-        return x >= 0 && y >= chromeTop && x < clientW && y < clientH;
+        // 世界只在 chrome 自由区里可交互：顶栏/工具栏/底栏是 HUD 的地盘。
+        return x >= 0 && y >= worldTop && x < clientW && y < worldBottom;
     }
 
     void PaintCell(int cell) {
@@ -900,7 +1004,7 @@ partial class ForgeInterface {
         } else if (selected != BlockKind.Empty) {
             string error = sim.world.BuildError(cell, selected);
             if (error == "") { sim.world.Build(cell, selected, direction); }
-            else { Message(error); }
+            else { ForgeAudio.PlayDefault(ForgeAudio.BUILD_REJECT); Message(error); }
         } else {
             inspectCell = cell;
         }
@@ -935,7 +1039,8 @@ partial class ForgeInterface {
         previousX = mouseX; previousY = mouseY;
         mouseX = x; mouseY = y;
         clientW = app.ClientWidth(); clientH = app.ClientHeight();
-        uiScale = clientW / 1280.0;
+        uiScale = app.Scale(100) / 100.0;
+        UpdateWorldBand();
         bool over = OverWorld(x, y);
         bool hud = HudConsumes(x, y);
         hoverCell = over && !hud ? camera.CellAt(sim.world, x, y) : -1;

@@ -26,6 +26,15 @@ TEMPLATE_SRC = ROOT / "client" / "src"
 GUI_MODULES = {
     "main.zan", "ForgeInterface.zan", "ForgeRenderer.zan", "ForgeCamera.zan",
     "CoreforgeHud.zan", "CoreforgeAutoTest.zan",
+    # 位图素材层（贴图批封装）与宿主时钟：同属"皮肤"层，不进逻辑测试。
+    # ForgeClock 是 FixedStepClock 的本地副本——引擎版住在 Game.Foundation，
+    # 导入它会连带 Game.Kit，与 Gui.SpriteBatch 同名撞车。
+    "ForgeArt.zan", "ForgeClock.zan",
+    # 音效层：ForgeAudio 是播放引擎（设备/clip/冷却/voice 账本），
+    # ForgeSfx 是"逻辑信号 → 音效"的映射。和 ForgeArt 一样属"皮肤"层：
+    # 它只读逻辑层产出的信号，不改逻辑；且强依赖 System.Media——逻辑测试
+    # 是无头控制台程序，不该去开音频设备。
+    "ForgeAudio.zan", "ForgeSfx.zan",
 }
 ERROR_TEXT = re.compile(r"\berror\b|\bfatal\b|\bpanic\b|\bexception\b|COREFORGE_TESTS_FAIL|ASSERT_FAIL", re.IGNORECASE)
 # The Zan runtime emits CRLF on Windows; tolerate it before the end anchor.

@@ -20,9 +20,14 @@ panel.cf-root { background: transparent; border: 0; }
 panel.cf-overlay { background: transparent; border: 0; }
 
 /* ---- 顶栏：半透明熔渣底 + 琥珀发丝下缘 ---- */
-flex.cf-topbar { background: rgba(14,10,5,0.86); border-bottom: 2 solid rgba(224,138,60,0.55); padding: 0 14 0 14; }
-label.cf-brand { font-size: 21; font-weight: 700; color: #e08a3c; margin: 0 2 0 0; }
-label.cf-brand-sub { font-size: 10; color: #93825f; margin: 4 10 0 0; }
+/* 顶栏/工具栏是固定高度的界面骨架，不参与 flex 溢出收缩。
+   引擎的 data-fh 对这些容器是有效的（prefH = Scale(46)=69 / Scale(34)=51），
+   但 root 是 flex 列：科技面板打开时 Overlay 内容高 1199 > 可用 1242，
+   触发 Control.zan 溢出收缩分支（该分支按比例压缩、且不查 min-height），
+   顶栏被压到 64、工具栏被压到 48，整个停靠栈连带下移 8 物理像素
+   （Overlay 顶 160 而非 168、面板 181 而非 189、波次条 253 而非 261）。
+   flex-shrink: 0 把这两条栏排除出收缩集合，骨架高度与设计稿恒等。 */
+flex.cf-topbar { background: rgba(14,10,5,0.86); border-bottom: 2 solid rgba(224,138,60,0.55); padding: 0 14 0 14; flex-shrink: 0; }
 flex.cf-pill { height: 26; padding: 0 10; border-radius: 13; background: rgba(224,138,60,0.10); border: 1 solid rgba(224,138,60,0.28); gap: 0; }
 div.cf-dot { width: 10; height: 10; border-radius: 5; margin: 0 6 0 0; }
 div.cf-copper { background: #e8a05d; } div.cf-lead { background: #b5a3c9; }
@@ -43,7 +48,7 @@ button.cf-on { background: #e08a3c; color: #1a130a; border-color: #f2a558; borde
 button.cf-on:hover { background: #f2a558; }
 
 /* ---- 工具栏第二排：小幽灵钮 + 炉心条 ---- */
-flex.cf-toolbar { background: rgba(14,10,5,0.72); border-bottom: 1 solid rgba(77,61,36,0.6); padding: 0 14 0 14; }
+flex.cf-toolbar { background: rgba(14,10,5,0.72); border-bottom: 1 solid rgba(77,61,36,0.6); padding: 0 14 0 14; flex-shrink: 0; }
 button.cf-mini { height: 25; padding: 0 10; background: rgba(34,27,16,0.55); color: #cdbb97; border: 1 solid #3d3019; border-radius: 4; font-size: 12; }
 button.cf-mini:hover { background: rgba(224,138,60,0.14); color: #f3ead9; }
 button.cf-mini:pressed { background: rgba(224,138,60,0.30); }
@@ -52,7 +57,11 @@ progress.cf-hp::fill { background: #e08a3c; }
 label.cf-hptext { font-size: 12; color: #cdbb97; }
 
 /* ---- 侧面板：目标 / 详情 / 科技 ---- */
-flex.cf-panel { background: rgba(14,10,5,0.84); border: 1 solid rgba(77,61,36,0.9); border-radius: 8; padding: 12 14; gap: 6; }
+/* 侧面板：目标 / 详情 / 科技。
+ * alpha 定在 0.92：这三个面板是唯一浮在世界层之上的控件（顶栏/工具栏/
+ * 建造栏/状态栏背后已铺不透明世界底色），0.84 时地形会以 16% 透出、
+ * 文字压在砖纹上；0.92 保留一点玻璃感又能让字站住。 */
+flex.cf-panel { background: rgba(14,10,5,0.92); border: 1 solid rgba(77,61,36,0.9); border-radius: 8; padding: 12 14; gap: 6; }
 label.cf-paneltitle { font-size: 14; font-weight: 700; color: #e08a3c; margin: 0 0 2 0; }
 /* 目标清单：左缘状态条——未完成为暗轨，完成为苔绿。 */
 label.cf-obj { font-size: 13; color: #cdbb97; border-left: 3 solid #3d3019; padding-left: 8; }
@@ -61,8 +70,24 @@ label.cf-detbody { font-size: 13; color: #f3ead9; }
 label.cf-hint { font-size: 11; color: #93825f; }
 /* 科技卡片：左对齐整行卡，悬停亮熔核缘。 */
 button.cf-techrow { height: 28; padding: 0 10; background: rgba(34,27,16,0.92); color: #f3ead9; border: 1 solid #3d3019; border-left: 3 solid #6b5327; border-radius: 4; font-size: 12; text-align: left; }
+/* 科技行四态：颜色区分状态，行内放不下状态词（宽度全给了成本串）。
+ * 选择器带两个类，特异性高于 base.css 的 button:disabled，
+ * 禁用行照样保留自己的状态色。 */
+button.cf-techrow.cf-tech-done { color: #8fae4e; }
+button.cf-techrow.cf-tech-ready { color: #ffe9c8; }
+button.cf-techrow.cf-tech-poor { color: #d9a13c; }
+button.cf-techrow.cf-tech-lock { color: #6a5f49; }
 button.cf-techrow:hover { background: #2f2617; color: #ffe9c8; }
 button.cf-techrow:pressed { background: rgba(224,138,60,0.30); }
+/* 科技图标：源图 24×24，CSS 尺寸必须换算成同一物理像素数才 1:1。
+ * 物理像素 = CSS × dpiScale/100；本机 150% → CSS 16 = 24 物理像素，
+ * 24×24 源图原样 blit，不缩不糊。之前写 24 CSS（=36 物理像素），
+ * contain 适配把源图放大 1.5 倍，像素画被 area-average 拉成糊块。
+ * 底色必须透明：base.css 给 image 兜了 --bg-tertiary 底，那层底会
+ * 变成图标背后的一块方砖。尺寸走 image.<class> 档位（app.Scale 换算 DPI）。 */
+image.cf-techicon { width: 16; height: 16; background: transparent; border-width: 0; }
+/* 科技面板图例：四态字形对照（字形+颜色同义，见 cf-techrow 四态）。 */
+label.cf-legend { font-size: 11; color: #cdbb97; margin: 0 0 2 0; }
 
 /* ---- 底部：建造栏（按产线族着色条）与状态栏 ----
  * 采掘铜棕 / 加工熔核琥珀 / 电力警示金 / 防线赤铜 /
