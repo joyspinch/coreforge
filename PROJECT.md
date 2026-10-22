@@ -18,7 +18,7 @@
 ## 编译
 
 ```powershell
-$env:ZAN_HOME = 'D:/project/zan-lang'   # 编译器与 stdlib 同源
+$env:ZAN_HOME = 'D:/path/to/zan-lang'   # 编译器与 stdlib 同源
 pwsh -File client/tools/build.ps1
 ```
 
@@ -45,6 +45,11 @@ pwsh -File client/tools/test.ps1     # 客户端用例
 ## 素材管线
 
 位图层由 `client/src/ForgeArt.zan` 负责，素材本身由工作区共享的 `tools/artkit/` 生成。
+
+> **注意**：`tools/artkit/` 是多项目工作区层面的共享美术工具包，**不随本仓发布**。
+> 本仓 `client/assets/` 里的 PNG / WAV 都是它生成后**入库**的结果，
+> 所以**克隆本仓即可直接构建、运行、游戏本体完整**；
+> 只有「想重新生成素材」这一步需要另外取得该工具包。
 
 ### 资源定位
 
@@ -152,7 +157,7 @@ slug 顺序 = `ForgeCatalog.TechDef` 的 `techs[0..14]`。
 ### 素材生成
 
 ```powershell
-cd D:\project\games
+cd <工作区根目录>          # 共享素材工具 tools\artkit 在这里（不随本仓发布）
 python tools\artkit\gen_coreforge.py        # 重新生成 36 个 PNG（53 个精灵）+ 27 个 WAV + manifest.csv
 python tools\artkit\verify_buildings.py     # 建筑全链一致性核对（改建筑/图集后必跑）
 python tools\artkit\tech_preview.py coreforge\build\coreforge-tests --scale 9 --cols 3
@@ -163,7 +168,7 @@ python tools\artkit\audio_preview.py        # 27 条波形 + 频谱联系表，�
 `gen_coreforge.py` 一次跑完图 + 音 + `manifest.csv`（63 行数据 = 36 图 + 27 音频）。
 音频可单独重生成：`python tools\artkit\audio_coreforge.py`。
 
-`tools/artkit/` 是全工作区共享的美术规范包：
+`tools/artkit/` 是全工作区共享的美术规范包（**不随本仓发布**，见上文「素材管线」下的说明）：
 
 | 文件 | 作用 |
 |---|---|
@@ -191,7 +196,7 @@ python tools\artkit\audio_preview.py        # 27 条波形 + 频谱联系表，�
 GUI 程序**必须**用 `Start-Process -NoNewWindow -Wait -PassThru` + `RedirectStandardOutput` 才拿得到 stdout：
 
 ```powershell
-$env:ZAN_HOME = 'D:/project/zan-lang'
+$env:ZAN_HOME = 'D:/path/to/zan-lang'
 $env:COREFORGE_SMOKE = '1'
 $env:COREFORGE_CAPTURE = "$PWD\build\coreforge-tests\after.zpx"
 $p = Start-Process -FilePath "$PWD\build\coreforge\Coreforge.exe" -NoNewWindow -Wait -PassThru `

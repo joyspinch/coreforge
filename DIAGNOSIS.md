@@ -170,7 +170,7 @@ Mindustry 素材**不可取用**：
 - GPL 传染。
 
 **只把 Mindustry 当「规格」参考**（画布尺寸 / 描边半径 / 光源方向 / 色槽结构），
-**不取任何像素**。像素画规格已抄进 `D:\project\games\ASSET-PIPELINE.md` 第一节，全工作区共用。
+**不取任何像素**。像素画规格已抄进 `工作区根目录的 ASSET-PIPELINE.md` 第一节，全工作区共用。
 
 ---
 
@@ -299,7 +299,7 @@ BlockKind 枚举 → 生成器 SLOTS → ForgeArt.buildingSlots → palette.json
 图集 18 格非空、5 格全透明。
 
 ```powershell
-cd D:\project\games; $env:ZAN_HOME='D:/project/zan-lang'; python tools\artkit\verify_buildings.py
+cd <工作区根目录>; $env:ZAN_HOME='D:/path/to/zan-lang'; python tools\artkit\verify_buildings.py
 ```
 
 ### 7.5 踩坑：`.zpx` 截图是 **BGRA**，不是 RGBA
